@@ -520,6 +520,18 @@ namespace s3d
                     player->mo->AttackDir = MapAttackDir;
                 }
 
+                {
+                    player->mo->OffhandPitch = cinemamode ? -offhandangles[PITCH] - r_viewpoint.Angles.Pitch.Degrees
+                            : -offhandangles[PITCH];
+
+                    player->mo->OffhandAngle = -90 + getViewpointYaw() + (offhandangles[YAW]- playerYaw);
+
+                    player->mo->OffhandPos.X = player->mo->X() - (offhandoffset[0] * vr_vunits_per_meter);
+                    player->mo->OffhandPos.Y = player->mo->Y() - (offhandoffset[2] * vr_vunits_per_meter);
+                    player->mo->OffhandPos.Z = r_viewpoint.CenterEyePos.Z + (((hmdPosition[1] + offhandoffset[1] + vr_height_adjust) * vr_vunits_per_meter) / pixelstretch) -
+                            getDoomPlayerHeightWithoutCrouch(player); // Fixes wrong shot height when in water
+                }
+
                 if (vr_teleport && player->mo->health > 0) {
 
                     DAngle yaw((doomYaw - hmdorientation[YAW]) + offhandangles[YAW]);
