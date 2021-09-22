@@ -252,6 +252,7 @@ class Actor : Thinker native
 	native readonly double AttackAngle;
 	native readonly vector3 OffhandPos;
 	native readonly double OffhandPitch;
+	native readonly double OffhandRoll;
 	native readonly double OffhandAngle;
 
 	meta String Obituary;		// Player was killed by this actor

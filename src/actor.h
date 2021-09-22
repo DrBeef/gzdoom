@@ -1532,6 +1532,7 @@ public:
 	DVector3 OffhandPos;
 	DAngle   OffhandPitch;
 	DAngle   OffhandAngle;
+	DAngle   OffhandRoll;
 };
 
 class FActorIterator

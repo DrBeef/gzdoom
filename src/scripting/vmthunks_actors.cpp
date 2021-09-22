@@ -1961,6 +1961,7 @@ DEFINE_FIELD(AActor, AttackPitch)
 DEFINE_FIELD(AActor, AttackAngle)
 DEFINE_FIELD(AActor, OffhandPos);
 DEFINE_FIELD(AActor, OffhandPitch)
+DEFINE_FIELD(AActor, OffhandRoll)
 DEFINE_FIELD(AActor, OffhandAngle)
 DEFINE_FIELD_NAMED(AActor, ViewAngles.Yaw, viewangle)
 DEFINE_FIELD_NAMED(AActor, ViewAngles.Pitch, viewpitch)

@@ -525,6 +525,7 @@ namespace s3d
                             : -offhandangles[PITCH];
 
                     player->mo->OffhandAngle = -90 + getViewpointYaw() + (offhandangles[YAW]- playerYaw);
+                    player->mo->OffhandRoll = offhandangles[ROLL];
 
                     player->mo->OffhandPos.X = player->mo->X() - (offhandoffset[0] * vr_vunits_per_meter);
                     player->mo->OffhandPos.Y = player->mo->Y() - (offhandoffset[2] * vr_vunits_per_meter);
