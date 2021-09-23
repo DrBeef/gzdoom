@@ -186,58 +186,123 @@ void FModelRenderer::RenderModel(float x, float y, float z, FSpriteModelFrame *s
 void FModelRenderer::RenderHUDModel(DPSprite *psp, float ofsX, float ofsY)
 {
 	AActor * playermo = players[consoleplayer].camera;
-	FSpriteModelFrame *smf = FindModelFrame(playermo->player->ReadyWeapon->GetClass(), psp->GetSprite(), psp->GetFrame(), false);
 
-	// [BB] No model found for this sprite, so we can't render anything.
-	if (smf == nullptr)
-		return;
-
-    long oculusquest_rightHanded = vr_control_scheme < 10;
-
-    // The model position and orientation has to be drawn independently from the position of the player,
-	// but we need to position it correctly in the world for light to work properly.
-	VSMatrix objectToWorldMatrix = GetViewToWorldMatrix();
-	if (s3d::Stereo3DMode::getCurrentMode().GetHandTransform(oculusquest_rightHanded ? 1 : 0, &objectToWorldMatrix))
 	{
-		float scale = 0.01f;
-		objectToWorldMatrix.scale(scale, scale, scale);
-		objectToWorldMatrix.translate(0, 5, 30);
+		FSpriteModelFrame *smf = FindModelFrame(playermo->player->ReadyWeapon->GetClass(), psp->GetSprite(), psp->GetFrame(), false);
+
+		// [BB] No model found for this sprite, so we can't render anything.
+		if (smf == nullptr)
+			return;
+
+		long oculusquest_rightHanded = vr_control_scheme < 10;
+
+		// The model position and orientation has to be drawn independently from the position of the player,
+		// but we need to position it correctly in the world for light to work properly.
+		VSMatrix objectToWorldMatrix = GetViewToWorldMatrix();
+		if (s3d::Stereo3DMode::getCurrentMode().GetHandTransform(oculusquest_rightHanded ? 1 : 0, &objectToWorldMatrix))
+		{
+			float scale = 0.01f;
+			objectToWorldMatrix.scale(scale, scale, scale);
+			objectToWorldMatrix.translate(0, 5, 30);
+		}
+		else
+		{
+			DVector3 pos = playermo->Pos();
+			objectToWorldMatrix.translate(pos.X, pos.Z + 40, pos.Y);
+			objectToWorldMatrix.rotate(-playermo->Angles.Yaw.Degrees - 90, 0, 1, 0);
+		}
+
+		// Scaling model (y scale for a sprite means height, i.e. z in the world!).
+		objectToWorldMatrix.scale(smf->xscale, smf->zscale, smf->yscale);
+
+		// Aplying model offsets (model offsets do not depend on model scalings).
+		objectToWorldMatrix.translate(smf->xoffset / smf->xscale, smf->zoffset / smf->zscale, smf->yoffset / smf->yscale);
+
+		// [BB] Weapon bob, very similar to the normal Doom weapon bob.
+		objectToWorldMatrix.rotate(ofsX / 4, 0, 1, 0);
+		objectToWorldMatrix.rotate((ofsY - WEAPONTOP) / -4., 1, 0, 0);
+
+		// [BB] For some reason the jDoom models need to be rotated.
+		objectToWorldMatrix.rotate(90.f, 0, 1, 0);
+
+		// Applying angleoffset, pitchoffset, rolloffset.
+		objectToWorldMatrix.rotate(-smf->angleoffset, 0, 1, 0);
+		objectToWorldMatrix.rotate(smf->pitchoffset, 0, 0, 1);
+		objectToWorldMatrix.rotate(-smf->rolloffset, 1, 0, 0);
+
+		//Scale weapon
+		objectToWorldMatrix.scale(vr_weaponScale, vr_weaponScale, vr_weaponScale);
+
+		float orientation = smf->xscale * smf->yscale * smf->zscale;
+
+		BeginDrawHUDModel(playermo, objectToWorldMatrix, orientation < 0);
+		uint32_t trans = psp->GetTranslation() != 0 ? psp->GetTranslation() : 0;
+		if ((psp->Flags & PSPF_PLAYERTRANSLATED)) trans = psp->Owner->mo->Translation;
+		RenderFrameModels(smf, psp->GetState(), psp->GetTics(), playermo->player->ReadyWeapon->GetClass(), trans);
+		EndDrawHUDModel(playermo);
 	}
-	else
+
+	if (playermo->player->OffhandWeapon != nullptr)
 	{
-		DVector3 pos = playermo->Pos();
-		objectToWorldMatrix.translate(pos.X, pos.Z + 40, pos.Y);
-		objectToWorldMatrix.rotate(-playermo->Angles.Yaw.Degrees - 90, 0, 1, 0);
+		DPSprite *psp = playermo->player->FindPSprite(PSP_OFFHANDWEAPON);
+		if (psp == nullptr)
+			return;
+
+		FSpriteModelFrame *smf = FindModelFrame(playermo->player->OffhandWeapon->GetClass(), 
+			psp->GetSprite(), psp->GetFrame(), false);
+
+
+		// [BB] No model found for this sprite, so we can't render anything.
+		if (smf == nullptr)
+			return;
+
+		long oculusquest_rightHanded = vr_control_scheme < 10;
+
+		// The model position and orientation has to be drawn independently from the position of the player,
+		// but we need to position it correctly in the world for light to work properly.
+		VSMatrix objectToWorldMatrix = GetViewToWorldMatrix();
+		if (s3d::Stereo3DMode::getCurrentMode().GetHandTransform(oculusquest_rightHanded ? 0 : 1, &objectToWorldMatrix))
+		{
+			float scale = 0.01f;
+			objectToWorldMatrix.scale(scale, scale, scale);
+			objectToWorldMatrix.translate(0, 5, 30);
+		}
+		else
+		{
+			DVector3 pos = playermo->Pos();
+			objectToWorldMatrix.translate(pos.X, pos.Z + 40, pos.Y);
+			objectToWorldMatrix.rotate(-playermo->Angles.Yaw.Degrees - 90, 0, 1, 0);
+		}
+
+		// Scaling model (y scale for a sprite means height, i.e. z in the world!).
+		objectToWorldMatrix.scale(smf->xscale, smf->zscale, smf->yscale);
+
+		// Aplying model offsets (model offsets do not depend on model scalings).
+		objectToWorldMatrix.translate(smf->xoffset / smf->xscale, smf->zoffset / smf->zscale, smf->yoffset / smf->yscale);
+
+		// [BB] Weapon bob, very similar to the normal Doom weapon bob.
+		objectToWorldMatrix.rotate(ofsX / 4, 0, 1, 0);
+		objectToWorldMatrix.rotate((ofsY - WEAPONTOP) / -4., 1, 0, 0);
+
+		// [BB] For some reason the jDoom models need to be rotated.
+		objectToWorldMatrix.rotate(90.f, 0, 1, 0);
+
+		// Applying angleoffset, pitchoffset, rolloffset.
+		objectToWorldMatrix.rotate(-smf->angleoffset, 0, 1, 0);
+		objectToWorldMatrix.rotate(smf->pitchoffset, 0, 0, 1);
+		objectToWorldMatrix.rotate(-smf->rolloffset, 1, 0, 0);
+
+		//Scale weapon
+		objectToWorldMatrix.scale(vr_weaponScale, vr_weaponScale, vr_weaponScale);
+
+		float orientation = smf->xscale * smf->yscale * smf->zscale;
+
+		BeginDrawHUDModel(playermo, objectToWorldMatrix, orientation < 0);
+		uint32_t trans = psp->GetTranslation() != 0 ? psp->GetTranslation() : 0;
+		if ((psp->Flags & PSPF_PLAYERTRANSLATED)) trans = psp->Owner->mo->Translation;
+		RenderFrameModels(smf, psp->GetState(), psp->GetTics(), playermo->player->OffhandWeapon->GetClass(), trans);
+		EndDrawHUDModel(playermo);
 	}
-
-	// Scaling model (y scale for a sprite means height, i.e. z in the world!).
-	objectToWorldMatrix.scale(smf->xscale, smf->zscale, smf->yscale);
-
-	// Aplying model offsets (model offsets do not depend on model scalings).
-	objectToWorldMatrix.translate(smf->xoffset / smf->xscale, smf->zoffset / smf->zscale, smf->yoffset / smf->yscale);
-
-	// [BB] Weapon bob, very similar to the normal Doom weapon bob.
-	objectToWorldMatrix.rotate(ofsX / 4, 0, 1, 0);
-	objectToWorldMatrix.rotate((ofsY - WEAPONTOP) / -4., 1, 0, 0);
-
-	// [BB] For some reason the jDoom models need to be rotated.
-	objectToWorldMatrix.rotate(90.f, 0, 1, 0);
-
-	// Applying angleoffset, pitchoffset, rolloffset.
-	objectToWorldMatrix.rotate(-smf->angleoffset, 0, 1, 0);
-	objectToWorldMatrix.rotate(smf->pitchoffset, 0, 0, 1);
-	objectToWorldMatrix.rotate(-smf->rolloffset, 1, 0, 0);
-
-	//Scale weapon
-	objectToWorldMatrix.scale(vr_weaponScale, vr_weaponScale, vr_weaponScale);
-
-	float orientation = smf->xscale * smf->yscale * smf->zscale;
-
-	BeginDrawHUDModel(playermo, objectToWorldMatrix, orientation < 0);
-	uint32_t trans = psp->GetTranslation() != 0 ? psp->GetTranslation() : 0;
-	if ((psp->Flags & PSPF_PLAYERTRANSLATED)) trans = psp->Owner->mo->Translation;
-	RenderFrameModels(smf, psp->GetState(), psp->GetTics(), playermo->player->ReadyWeapon->GetClass(), trans);
-	EndDrawHUDModel(playermo);
 }
 
 void FModelRenderer::RenderFrameModels(const FSpriteModelFrame *smf, const FState *curState, const int curTics, const PClass *ti, int translation)
