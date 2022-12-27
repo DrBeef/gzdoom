@@ -48,7 +48,6 @@
 #include "d_gui.h"
 #include "d_event.h"
 
-#include "QzDoom/VrCommon.h"
 #include "LSMatrix.h"
 
 
@@ -91,8 +90,40 @@ EXTERN_CVAR(Float, vr_automap_rotate);
 EXTERN_CVAR(Bool,  vr_automap_fixed_pitch);
 EXTERN_CVAR(Bool,  vr_automap_fixed_roll);
 
+
+#include "QzDoom/mathlib.h"
+
+extern vec3_t hmdPosition;
+extern vec3_t hmdorientation;
+extern vec3_t weaponoffset;
+extern vec3_t weaponangles;
+extern vec3_t offhandoffset;
+extern vec3_t offhandoffset;
+extern vec3_t offhandangles;
+
+extern float playerYaw;
+extern float doomYaw;
+extern bool cinemamode;
+
+extern bool ready_teleport;
+extern bool trigger_teleport;
+extern bool shutdown;
+extern bool resetDoomYaw;
+extern bool resetPreviousPitch;
+extern float previousPitch;
+
+void TBXR_FrameSetup();
+void TBXR_prepareEyeBuffer(int eye );
+void TBXR_finishEyeBuffer(int eye );
+void TBXR_submitFrame();
+
+void QzDoom_setUseScreenLayer(bool use);
+void VR_GetMove( float *joy_forward, float *joy_side, float *hmd_forward, float *hmd_side, float *up, float *yaw, float *pitch, float *roll );
+bool VR_GetVRProjection(int eye, float zNear, float zFar, float* projection);
+void VR_HapticEnable();
+
+
 double P_XYMovement(AActor *mo, DVector2 scroll);
-extern "C" void VR_GetMove( float *joy_forward, float *joy_side, float *hmd_forward, float *hmd_side, float *up, float *yaw, float *pitch, float *roll );
 void ST_Endoom();
 
 extern bool		automapactive;	// in AM_map.c
@@ -119,7 +150,7 @@ float getDoomPlayerHeightWithoutCrouch(const player_t *player)
     return height;
 }
 
-extern "C" float getViewpointYaw()
+float getViewpointYaw()
 {
     if (cinemamode)
     {
@@ -134,7 +165,7 @@ namespace s3d
     static DVector3 oculusquest_origin(0, 0, 0);
     static float deltaYawDegrees;
 
-    OculusQuestEyePose::OculusQuestEyePose(int eye)
+    OpenXRDeviceEyePose::OpenXRDeviceEyePose(int eye)
             : ShiftedEyePose( 0.0f )
             , eye(eye)
     {
@@ -142,12 +173,12 @@ namespace s3d
 
 
 /* virtual */
-    OculusQuestEyePose::~OculusQuestEyePose()
+    OpenXRDeviceEyePose::~OpenXRDeviceEyePose()
     {
     }
 
 /* virtual */
-    void OculusQuestEyePose::GetViewShift(FLOATTYPE yaw, FLOATTYPE outViewShift[3]) const
+    void OpenXRDeviceEyePose::GetViewShift(FLOATTYPE yaw, FLOATTYPE outViewShift[3]) const
     {
         outViewShift[0] = outViewShift[1] = outViewShift[2] = 0;
 
@@ -172,21 +203,25 @@ namespace s3d
     }
 
 /* virtual */
-    VSMatrix OculusQuestEyePose::GetProjection(FLOATTYPE fov, FLOATTYPE aspectRatio, FLOATTYPE fovRatio) const
+    VSMatrix OpenXRDeviceEyePose::GetProjection(FLOATTYPE fov, FLOATTYPE aspectRatio, FLOATTYPE fovRatio) const
     {
-        projection = EyePose::GetProjection(fov, aspectRatio, fovRatio);
+        float m[16];
+        VR_GetVRProjection(eye, FGLRenderer::GetZNear(), FGLRenderer::GetZFar(), m);
+        projection.loadMatrix(m);
+
+        //projection = EyePose::GetProjection(fov, aspectRatio, fovRatio);
         return projection;
     }
 
-    bool OculusQuestEyePose::submitFrame() const
+    bool OpenXRDeviceEyePose::submitFrame() const
     {
-        QzDoom_prepareEyeBuffer(eye);
+        TBXR_prepareEyeBuffer(eye);
 
         GLRenderer->mBuffers->BindEyeTexture(eye, 0);
         GL_IRECT box = {0, 0, GLRenderer->mSceneViewport.width, GLRenderer->mSceneViewport.height};
         GLRenderer->DrawPresentTexture(box, true);
 
-        QzDoom_finishEyeBuffer(eye);
+        TBXR_finishEyeBuffer(eye);
 
         return true;
     }
@@ -197,7 +232,7 @@ namespace s3d
         return (automapactive && !vr_automap_use_hud) ? automap : hud;
     }
 
-    VSMatrix OculusQuestEyePose::getHUDProjection() const
+    VSMatrix OpenXRDeviceEyePose::getHUDProjection() const
     {
         VSMatrix new_projection;
         new_projection.loadIdentity();
@@ -246,7 +281,7 @@ namespace s3d
         return new_projection;
     }
 
-    void OculusQuestEyePose::AdjustHud() const
+    void OpenXRDeviceEyePose::AdjustHud() const
     {
         const Stereo3DMode * mode3d = &Stereo3DMode::getCurrentMode();
         if (mode3d->IsMono())
@@ -257,7 +292,7 @@ namespace s3d
         gl_RenderState.ApplyMatrices();
     }
 
-    void OculusQuestEyePose::AdjustBlend() const
+    void OpenXRDeviceEyePose::AdjustBlend() const
     {
         VSMatrix& proj = gl_RenderState.mProjectionMatrix;
         proj.loadIdentity();
@@ -268,13 +303,13 @@ namespace s3d
 
 
 /* static */
-    const Stereo3DMode& OculusQuestMode::getInstance()
+    const Stereo3DMode& OpenXRDeviceMode::getInstance()
     {
-        static OculusQuestMode instance;
+        static OpenXRDeviceMode instance;
         return instance;
     }
 
-    OculusQuestMode::OculusQuestMode()
+    OpenXRDeviceMode::OpenXRDeviceMode()
             : leftEyeView(0)
             , rightEyeView(1)
             , sceneWidth(0), sceneHeight(0), cachedScreenBlocks(0)
@@ -288,7 +323,7 @@ namespace s3d
 
 /* virtual */
 // AdjustViewports() is called from within FLGRenderer::SetOutputViewport(...)
-    void OculusQuestMode::AdjustViewports() const
+    void OpenXRDeviceMode::AdjustViewports() const
     {
         // Draw the 3D scene into the entire framebuffer
         GLRenderer->mSceneViewport.width = sceneWidth;
@@ -300,7 +335,7 @@ namespace s3d
         GLRenderer->mScreenViewport.height = sceneHeight;
     }
 
-    void OculusQuestMode::AdjustPlayerSprites(int hand) const
+    void OpenXRDeviceMode::AdjustPlayerSprites(int hand) const
     {
         GetWeaponTransform(&gl_RenderState.mModelMatrix, hand);
 
@@ -311,12 +346,12 @@ namespace s3d
         gl_RenderState.EnableModelMatrix(true);
     }
 
-    void OculusQuestMode::UnAdjustPlayerSprites() const {
+    void OpenXRDeviceMode::UnAdjustPlayerSprites() const {
 
         gl_RenderState.EnableModelMatrix(false);
     }
 
-    bool OculusQuestMode::GetHandTransform(int hand, VSMatrix* mat) const
+    bool OpenXRDeviceMode::GetHandTransform(int hand, VSMatrix* mat) const
     {
         double pixelstretch = level.info ? level.info->pixelstretch : 1.2;
         player_t* player = r_viewpoint.camera ? r_viewpoint.camera->player : nullptr;
@@ -369,7 +404,7 @@ namespace s3d
         return false;
     }
 
-    bool OculusQuestMode::GetWeaponTransform(VSMatrix* out, int hand_weapon) const
+    bool OpenXRDeviceMode::GetWeaponTransform(VSMatrix* out, int hand_weapon) const
     {
         player_t * player = r_viewpoint.camera ? r_viewpoint.camera->player : nullptr;
         bool autoReverse = true;
@@ -391,12 +426,12 @@ namespace s3d
 
 
 /* virtual */
-    void OculusQuestMode::Present() const {
+    void OpenXRDeviceMode::Present() const {
 
         leftEyeView.submitFrame();
         rightEyeView.submitFrame();
 
-        QzDoom_submitFrame(&tracking);
+        TBXR_submitFrame();
     }
 
     static int mAngleFromRadians(double radians)
@@ -447,7 +482,7 @@ namespace s3d
         return MapWeaponDir(actor, yaw, pitch, 1);
     }
 
-    bool OculusQuestMode::GetTeleportLocation(DVector3 &out) const
+    bool OpenXRDeviceMode::GetTeleportLocation(DVector3 &out) const
     {
         player_t* player = r_viewpoint.camera ? r_viewpoint.camera->player : nullptr;
         if (vr_teleport &&
@@ -462,17 +497,17 @@ namespace s3d
     }
 
     /* virtual */
-    void OculusQuestMode::SetUp() const
+    void OpenXRDeviceMode::SetUp() const
     {
         super::SetUp();
 
-        QzDoom_FrameSetup();
+        TBXR_FrameSetup();
 
         static bool enabled = false;
         if (!enabled)
         {
             enabled = true;
-            QzDoom_HapticEnable();
+            VR_HapticEnable();
         }
 
         if (shutdown)
@@ -481,8 +516,6 @@ namespace s3d
 
             return;
         }
-
-        QzDoom_processMessageQueue();
 
         if (gamestate == GS_LEVEL && getMenuState() == MENU_Off) {
             cachedScreenBlocks = screenblocks;
@@ -493,25 +526,6 @@ namespace s3d
             //Ensure we are drawing on virtual screen
             QzDoom_setUseScreenLayer(true);
         }
-
-        QzDoom_processHaptics();
-
-        //Get controller state here
-        QzDoom_getHMDOrientation(&tracking);
-
-        //Set up stuff used in the tracking code - getting the CVARS in the C code would be a faff, so just
-        //set some variables - lazy, should do it properly..
-        vr_weapon_pitchadjust = vr_weaponRotate;
-        vr_weapon_offset_x = vr_weaponOffsetX;
-        vr_weapon_offset_y = vr_weaponOffsetY;
-        vr_weapon_offset_z = vr_weaponOffsetZ;
-        vr_snapturn_angle = vr_snapTurn;
-        vr_switchsticks = vr_switch_sticks;
-        vr_moveuseoffhand = vr_move_use_offhand;
-        vr_use_teleport = vr_teleport;
-        vr_secondarybuttonmappings = vr_secondary_button_mappings;
-        vr_twohandedweapons = vr_two_handed_weapons;
-        QzDoom_getTrackedRemotesOrientation(vr_control_scheme);
 
         //Some crazy stuff to ascertain the actual yaw that doom is using at the right times!
         if (getGameState() != GS_LEVEL || getMenuState() != MENU_Off)
@@ -645,7 +659,7 @@ namespace s3d
         }
     }
 
-    void OculusQuestMode::updateHmdPose() const
+    void OpenXRDeviceMode::updateHmdPose() const
     {
         float dummy=0;
         float yaw=0;
@@ -677,7 +691,7 @@ namespace s3d
 
             double hmdPitchDeltaDegrees = pitch - previousPitch;
 
-            ALOGV("dPitch = %f", hmdPitchDeltaDegrees );
+            //ALOGV("dPitch = %f", hmdPitchDeltaDegrees );
 
             G_AddViewPitch(mAngleFromRadians(DEG2RAD(-hmdPitchDeltaDegrees)));
             previousPitch = pitch;
@@ -704,7 +718,7 @@ namespace s3d
     }
 
 /* virtual */
-    void OculusQuestMode::TearDown() const
+    void OpenXRDeviceMode::TearDown() const
     {
         if (getGameState() == GS_LEVEL && cachedScreenBlocks != 0 && !getMenuState()) {
             screenblocks = cachedScreenBlocks;
@@ -713,7 +727,7 @@ namespace s3d
     }
 
 /* virtual */
-    OculusQuestMode::~OculusQuestMode()
+    OpenXRDeviceMode::~OpenXRDeviceMode()
     {
     }
 
