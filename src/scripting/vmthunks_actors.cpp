@@ -138,10 +138,10 @@ DEFINE_ACTION_FUNCTION(AActor, A_StopSound)
 	PARAM_ACTION_PROLOGUE(AActor);
 	PARAM_INT(slot);
 	
-	if (self->player != nullptr && stateinfo != nullptr)
+	if (ACTION_CALL_FROM_PSPRITE())
 	{
 		DPSprite *pspr = self->player->FindPSprite(stateinfo->mPSPIndex);
-		if (pspr->GetID() == PSP_OFFHANDWEAPON && slot == CHAN_WEAPON)
+		if (pspr != nullptr && pspr->GetID() == PSP_OFFHANDWEAPON && slot == CHAN_WEAPON)
 		{
 			slot = CHAN_OFFWEAPON;
 		}
@@ -162,18 +162,38 @@ DEFINE_ACTION_FUNCTION_NATIVE(AActor, A_StopSounds, S_StopActorSounds)
 
 DEFINE_ACTION_FUNCTION_NATIVE(AActor, A_SoundPitch, S_ChangeActorSoundPitch)
 {
-	PARAM_SELF_PROLOGUE(AActor);
+	PARAM_ACTION_PROLOGUE(AActor);
 	PARAM_INT(channel);
 	PARAM_FLOAT(pitch);
+
+	if (ACTION_CALL_FROM_PSPRITE())
+	{
+		DPSprite *pspr = self->player->FindPSprite(stateinfo->mPSPIndex);
+		if (pspr != nullptr && pspr->GetID() == PSP_OFFHANDWEAPON && channel == CHAN_WEAPON)
+		{
+			channel = CHAN_OFFWEAPON;
+		}
+	}
+
 	S_ChangeActorSoundPitch(self, channel, pitch);
 	return 0;
 }
 
 DEFINE_ACTION_FUNCTION_NATIVE(AActor, A_SoundVolume, S_ChangeActorSoundVolume)
 {
-	PARAM_SELF_PROLOGUE(AActor);
+	PARAM_ACTION_PROLOGUE(AActor);
 	PARAM_INT(channel);
 	PARAM_FLOAT(volume);
+
+	if (ACTION_CALL_FROM_PSPRITE())
+	{
+		DPSprite *pspr = self->player->FindPSprite(stateinfo->mPSPIndex);
+		if (pspr != nullptr && pspr->GetID() == PSP_OFFHANDWEAPON && channel == CHAN_WEAPON)
+		{
+			channel = CHAN_OFFWEAPON;
+		}
+	}
+
 	S_ChangeActorSoundVolume(self, channel, volume);
 	return 0;
 }
@@ -189,10 +209,10 @@ DEFINE_ACTION_FUNCTION(AActor, A_PlaySound)
 	PARAM_BOOL(local);
 	PARAM_FLOAT(pitch);
 
-	if (self->player != nullptr && stateinfo != nullptr)
+	if (ACTION_CALL_FROM_PSPRITE())
 	{
 		DPSprite *pspr = self->player->FindPSprite(stateinfo->mPSPIndex);
-		if (pspr->GetID() == PSP_OFFHANDWEAPON && (channel & 7) == CHAN_WEAPON)
+		if (pspr != nullptr && pspr->GetID() == PSP_OFFHANDWEAPON && (channel & 7) == CHAN_WEAPON)
 		{
 			channel &= ~7;
 			channel |= CHAN_OFFWEAPON;
@@ -214,16 +234,48 @@ DEFINE_ACTION_FUNCTION(AActor, A_StartSound)
 	PARAM_FLOAT(pitch);
 	PARAM_FLOAT(startTime);
 
-	if (self->player != nullptr && stateinfo != nullptr)
+	if (ACTION_CALL_FROM_PSPRITE())
 	{
 		DPSprite *pspr = self->player->FindPSprite(stateinfo->mPSPIndex);
-		if (pspr->GetID() == PSP_OFFHANDWEAPON && channel == CHAN_WEAPON)
+		if (pspr != nullptr && pspr->GetID() == PSP_OFFHANDWEAPON && channel == CHAN_WEAPON)
 		{
 			channel = CHAN_OFFWEAPON;
 		}
 	}
 
 	A_StartSound(self, soundid, channel, flags, volume, attenuation, pitch, startTime);
+	return 0;
+}
+
+
+void A_StartSoundIfNotSame(AActor *self, int soundid, int checksoundid, int channel, int flags, double volume, double attenuation, double pitch, double startTime)
+{
+	if (!S_AreSoundsEquivalent (self, soundid, checksoundid))
+		A_StartSound(self, soundid, channel, flags, volume, attenuation, pitch, startTime);
+}
+
+DEFINE_ACTION_FUNCTION_NATIVE(AActor, A_StartSoundIfNotSame, A_StartSoundIfNotSame)
+{
+	PARAM_ACTION_PROLOGUE(AActor);
+	PARAM_SOUND(soundid);
+	PARAM_SOUND(checksoundid);
+	PARAM_INT(channel);
+	PARAM_INT(flags);
+	PARAM_FLOAT(volume);
+	PARAM_FLOAT(attenuation);
+	PARAM_FLOAT(pitch);
+	PARAM_FLOAT(startTime);
+
+	if (ACTION_CALL_FROM_PSPRITE())
+	{
+		DPSprite *pspr = self->player->FindPSprite(stateinfo->mPSPIndex);
+		if (pspr != nullptr && pspr->GetID() == PSP_OFFHANDWEAPON && channel == CHAN_WEAPON)
+		{
+			channel = CHAN_OFFWEAPON;
+		}
+	}
+	
+	A_StartSoundIfNotSame(self, soundid, checksoundid, channel, flags, volume, attenuation, pitch, startTime);
 	return 0;
 }
 
@@ -1454,10 +1506,10 @@ DEFINE_ACTION_FUNCTION_NATIVE(AActor, HitFriend, P_HitFriend)
 	ACTION_RETURN_BOOL(P_HitFriend(self));
 }
 
-DEFINE_ACTION_FUNCTION_NATIVE(AActor, MonsterMove, P_Move)
+DEFINE_ACTION_FUNCTION_NATIVE(AActor, MonsterMove, P_SmartMove)
 {
 	PARAM_SELF_PROLOGUE(AActor);
-	ACTION_RETURN_BOOL(P_Move(self));
+	ACTION_RETURN_BOOL(P_SmartMove(self));
 }
 
 DEFINE_ACTION_FUNCTION_NATIVE(AActor, NewChaseDir, P_NewChaseDir)
@@ -1815,6 +1867,7 @@ DEFINE_FIELD_NAMED(AActor, __Pos.X, x)
 DEFINE_FIELD_NAMED(AActor, __Pos.Y, y)
 DEFINE_FIELD_NAMED(AActor, __Pos.Z, z)
 DEFINE_FIELD(AActor, SpriteOffset)
+DEFINE_FIELD(AActor, WorldOffset)
 DEFINE_FIELD(AActor, Prev)
 DEFINE_FIELD(AActor, SpriteAngle)
 DEFINE_FIELD(AActor, SpriteRotation)
@@ -1893,6 +1946,7 @@ DEFINE_FIELD(AActor, special)
 DEFINE_FIELD(AActor, tid)
 DEFINE_FIELD(AActor, TIDtoHate)
 DEFINE_FIELD(AActor, waterlevel)
+DEFINE_FIELD(AActor, waterdepth)
 DEFINE_FIELD(AActor, Score)
 DEFINE_FIELD(AActor, accuracy)
 DEFINE_FIELD(AActor, stamina)

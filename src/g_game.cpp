@@ -90,6 +90,7 @@
 #include "dobjgc.h"
 #include "gi.h"
 #include "p_conversation.h"
+#include "r_data/models/models.h"
 
 #include <zlib.h>
 
@@ -98,15 +99,15 @@
 #include "events.h"
 #include "d_main.h"
 
-#include <QzDoom/VrInput.h>
+#include <QzDoom/VrCommon.h>
 #include <cmath>
 
 
 static FRandom pr_dmspawn ("DMSpawn");
 static FRandom pr_pspawn ("PlayerSpawn");
 
-const int SAVEPICWIDTH = 216;
-const int SAVEPICHEIGHT = 162;
+const int SAVEPICWIDTH = 300;
+const int SAVEPICHEIGHT = 300;
 
 bool	G_CheckDemoStatus (void);
 void	G_ReadDemoTiccmd (ticcmd_t *cmd, int player);
@@ -130,11 +131,12 @@ FIntCVar gameskill ("skill", 2, CVAR_SERVERINFO|CVAR_LATCH);
 CVAR(Bool, save_formatted, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)	// use formatted JSON for saves (more readable but a larger files and a bit slower.
 CVAR (Int, deathmatch, 0, CVAR_SERVERINFO|CVAR_LATCH);
 CVAR (Bool, chasedemo, false, 0);
-CVAR (Bool, storesavepic, false, CVAR_ARCHIVE|CVAR_GLOBALCONFIG)
+CVAR (Bool, storesavepic, true, CVAR_ARCHIVE|CVAR_GLOBALCONFIG)
 CVAR (Bool, longsavemessages, true, CVAR_ARCHIVE|CVAR_GLOBALCONFIG)
 CVAR (String, save_dir, "", CVAR_ARCHIVE|CVAR_GLOBALCONFIG);
 CVAR (Bool, cl_waitforsave, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG);
 CVAR (Bool, enablescriptscreenshot, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG);
+CVAR (Bool, puristmode, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG);
 EXTERN_CVAR (Float, con_midtime);
 EXTERN_CVAR(Bool, vr_teleport);
 EXTERN_CVAR(Int, vr_move_speed);
@@ -351,10 +353,13 @@ CCMD (switchhand)
 	{
 		int hand = atoi (argv[1]);
 		auto mo = players[consoleplayer].mo;
-		IFVIRTUALPTRNAME(mo, NAME_PlayerPawn, SwitchWeaponHand)
+		if (mo)
 		{
-			VMValue param[] = { mo, hand };
-			VMCall(func, param, 2, nullptr, 0);
+			IFVIRTUALPTRNAME(mo, NAME_PlayerPawn, SwitchWeaponHand)
+			{
+				VMValue param[] = { mo, hand };
+				VMCall(func, param, 2, nullptr, 0);
+			}
 		}
 	}
 }
@@ -562,10 +567,14 @@ CCMD (invuse)
 
 CCMD(invquery)
 {
-	AActor *inv = players[consoleplayer].mo->PointerVar<AActor>(NAME_InvSel);
-	if (inv != NULL)
+	auto mo = players[consoleplayer].mo;
+	if (mo)
 	{
-		Printf(PRINT_HIGH, "%s (%dx)\n", inv->GetTag(), inv->IntVar(NAME_Amount));
+		AActor *inv = mo->PointerVar<AActor>(NAME_InvSel);
+		if (inv != NULL)
+		{
+			Printf(PRINT_HIGH, "%s (%dx)\n", inv->GetTag(), inv->IntVar(NAME_Amount));
+		}
 	}
 }
 
@@ -703,21 +712,21 @@ void G_BuildTiccmd (ticcmd_t *cmd)
 		if (turnheld < SLOWTURNTICS)
 			tspeed += 2;		// slow turn
 		
-		if (Button_Right.bDown)
+		if (false && Button_Right.bDown)
 		{
 			G_AddViewAngle (*angleturn[tspeed]);
 		}
-		if (Button_Left.bDown)
+		if (false && Button_Left.bDown)
 		{
 			G_AddViewAngle (-*angleturn[tspeed]);
 		}
 	}
 
-	if (Button_LookUp.bDown)
+	if (false && Button_LookUp.bDown)
 	{
 		G_AddViewPitch (lookspeed[speed]);
 	}
-	if (Button_LookDown.bDown)
+	if (false && Button_LookDown.bDown)
 	{
 		G_AddViewPitch (-lookspeed[speed]);
 	}
@@ -729,9 +738,9 @@ void G_BuildTiccmd (ticcmd_t *cmd)
 
 	if (Button_Klook.bDown)
 	{
-		if (Button_Forward.bDown)
+		if (false && Button_Forward.bDown)
 			G_AddViewPitch (lookspeed[speed]);
-		if (Button_Back.bDown)
+		if (false && Button_Back.bDown)
 			G_AddViewPitch (-lookspeed[speed]);
 	}
 	else
@@ -755,6 +764,8 @@ void G_BuildTiccmd (ticcmd_t *cmd)
 	if (Button_Crouch.bDown)		cmd->ucmd.buttons |= BT_CROUCH;
 	if (Button_Zoom.bDown)			cmd->ucmd.buttons |= BT_ZOOM;
 	if (Button_Reload.bDown)		cmd->ucmd.buttons |= BT_RELOAD;
+	if (Button_MH_Reload.bDown)		cmd->ucmd.buttons |= BT_MAINHANDRELOAD;
+	if (Button_OH_Reload.bDown)		cmd->ucmd.buttons |= BT_OFFHANDRELOAD;
 	if (Button_OH_Attack.bDown)		cmd->ucmd.buttons |= BT_OFFHANDATTACK;
 	if (Button_OH_AltAttack.bDown)	cmd->ucmd.buttons |= BT_OFFHANDALTATTACK;
 
@@ -783,8 +794,12 @@ void G_BuildTiccmd (ticcmd_t *cmd)
 		float joyside=0;
 		float dummy=0;
 		VR_GetMove(&joyforward, &joyside, &dummy, &dummy, &dummy, &dummy, &dummy, &dummy);
-		side += joyint(joyside * (vr_move_speed * (speed ? vr_run_multiplier : 1.0)));
-		forward += joyint(joyforward * (vr_move_speed * (speed ? vr_run_multiplier : 1.0)));
+		side = joyint(joyside * (vr_move_speed * (speed ? vr_run_multiplier : 1.0)));
+		forward = joyint(joyforward * (vr_move_speed * (speed ? vr_run_multiplier : 1.0)));
+	}
+	else
+	{
+		side = forward = 0;
 	}
 
 	cmd->ucmd.pitch = LocalViewPitch >> 16;
@@ -1416,6 +1431,7 @@ void G_PlayerReborn (int player)
 	p->settings_controller = settings_controller;
 
 	p->oldbuttons = ~0, p->attackdown = true; p->usedown = true;	// don't do anything immediately
+	p->ohattackdown = true;
 	p->original_oldbuttons = ~0;
 	p->playerstate = PST_LIVE;
 
@@ -1739,7 +1755,7 @@ void G_DoReborn (int playernum, bool freshbot)
 		!G_SkillProperty(SKILLP_PlayerRespawn))
 	{
 		if (BackupSaveName.Len() > 0 && FileExists (BackupSaveName.GetChars())
-			&& (ishub || !pistolstart || !gameinfo.gametype == GAME_Doom))
+			&& (ishub || !pistolstart || !(gameinfo.gametype == GAME_Doom)))
 		{ // Load game from the last point it was saved
 			savename = BackupSaveName;
 			gameaction = ga_autoloadgame;
@@ -2092,6 +2108,14 @@ void G_DoLoadGame ()
 
 	if (longsavemessages) Printf("%s (%s)\n", GStrings("GGLOADED"), savename.GetChars());
 	else Printf("%s\n", GStrings("GGLOADED"));
+
+	//Push any added models from A_ChangeModel
+	for (auto& smf : level.savedModelFiles)
+	{
+		FString modelFilePath = smf.Left(smf.LastIndexOf("/")+1);
+		FString modelFileName = smf.Right(smf.Len() - smf.Left(smf.LastIndexOf("/") + 1).Len());
+		FindModel(modelFilePath, modelFileName);
+	}
 
 	// At this point, the GC threshold is likely a lot higher than the
 	// amount of memory in use, so bring it down now by starting a

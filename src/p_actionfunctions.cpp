@@ -84,6 +84,7 @@
 #include "actorinlines.h"
 #include "vm.h"
 #include "types.h"
+#include "r_data/models/models.h"
 
 AActor *SingleActorFromTID(int tid, AActor *defactor);
 
@@ -1304,17 +1305,35 @@ DEFINE_ACTION_FUNCTION(AActor, A_CustomRailgun)
 //===========================================================================
 DEFINE_ACTION_FUNCTION(AActor, A_Recoil)
 {
-	PARAM_SELF_PROLOGUE(AActor);
+	PARAM_ACTION_PROLOGUE(AActor);
 	PARAM_FLOAT(xyvel);
 
-	//We don't want to adjust the player's camera - that could make them sick
-	player_t* player = players[consoleplayer].camera ? players[consoleplayer].camera->player : nullptr;
-	if (!vr_recoil && player != nullptr && self != nullptr && player->mo == self)
+	player_t *player = self->player;
+	if (player != nullptr && player->mo == self)
 	{
-		return 0;
+		//We don't want to adjust the player's camera - that could make them sick
+		if (!vr_recoil) return 0;
+		player->keepmomentum = true;
 	}
 
-	self->Thrust(self->Angles.Yaw + 180., xyvel);
+	DAngle directionAngle = self->Angles.Yaw;
+	if (ACTION_CALL_FROM_PSPRITE())
+	{
+		DPSprite *pspr = self->player->FindPSprite(stateinfo->mPSPIndex);
+		if (pspr != nullptr && player->mo->OverrideAttackPosDir)
+		{
+			if (pspr->GetID() == PSP_OFFHANDWEAPON)
+			{
+				directionAngle = player->mo->OffhandAngle + 90;
+			}
+			else
+			{
+				directionAngle = player->mo->AttackAngle + 90;
+			}
+		}
+	}
+
+	self->Thrust(directionAngle + 180., xyvel);
 	return 0;
 }
 
@@ -1657,6 +1676,7 @@ enum SPFflag
 	SPF_RELACCEL =			1 << 3,
 	SPF_RELANG =			1 << 4,
 	SPF_NOTIMEFREEZE =		1 << 5,
+	SPF_ROLL =				1 << 6,
 };
 
 DEFINE_ACTION_FUNCTION(AActor, A_SpawnParticle)
@@ -1710,6 +1730,75 @@ DEFINE_ACTION_FUNCTION(AActor, A_SpawnParticle)
 			acc.Y = accelx * s - accely * c;
 		}
 		P_SpawnParticle(self->Vec3Offset(pos), vel, acc, color, startalpha, lifetime, size, fadestep, sizestep, flags);
+	}
+	return 0;
+}
+
+DEFINE_ACTION_FUNCTION(AActor, A_SpawnParticleEx)
+{
+	PARAM_SELF_PROLOGUE(AActor);
+	PARAM_COLOR		(color);
+	PARAM_INT   (i_texid)
+	PARAM_INT   (style)
+	PARAM_INT	(flags)		
+	PARAM_INT	(lifetime)	
+	PARAM_FLOAT	(size)		
+	PARAM_ANGLE	(angle)		
+	PARAM_FLOAT	(xoff)		
+	PARAM_FLOAT	(yoff)		
+	PARAM_FLOAT	(zoff)		
+	PARAM_FLOAT	(xvel)		
+	PARAM_FLOAT	(yvel)		
+	PARAM_FLOAT	(zvel)		
+	PARAM_FLOAT	(accelx)	
+	PARAM_FLOAT	(accely)	
+	PARAM_FLOAT	(accelz)	
+	PARAM_FLOAT	(startalpha)
+	PARAM_FLOAT	(fadestep)	
+	PARAM_FLOAT (sizestep)	
+	PARAM_FLOAT	(startroll)	
+	PARAM_FLOAT	(rollvel)	
+	PARAM_FLOAT	(rollacc)
+
+	startalpha = clamp(startalpha, 0., 1.);
+	if (fadestep > 0) fadestep = clamp(fadestep, 0., 1.);
+	size = fabs(size);
+	if (lifetime != 0)
+	{
+		if (flags & SPF_RELANG) angle += self->Angles.Yaw;
+		double s = angle.Sin();
+		double c = angle.Cos();
+		DVector3 pos(xoff, yoff, zoff + self->GetBobOffset());
+		DVector3 vel(xvel, yvel, zvel);
+		DVector3 acc(accelx, accely, accelz);
+		//[MC] Code ripped right out of A_SpawnItemEx.
+		if (flags & SPF_RELPOS)
+		{
+			// in relative mode negative y values mean 'left' and positive ones mean 'right'
+			// This is the inverse orientation of the absolute mode!
+			pos.X = xoff * c + yoff * s;
+			pos.Y = xoff * s - yoff * c;
+		}
+		if (flags & SPF_RELVEL)
+		{
+			vel.X = xvel * c + yvel * s;
+			vel.Y = xvel * s - yvel * c;
+		}
+		if (flags & SPF_RELACCEL)
+		{
+			acc.X = accelx * c + accely * s;
+			acc.Y = accelx * s - accely * c;
+		}
+		
+		FTextureID texid;
+		texid.SetIndex(i_texid);
+		
+		if(style < 0 || style >= STYLE_Count)
+		{
+			style = STYLE_None;
+		}
+
+		P_SpawnParticle(self->Vec3Offset(pos), vel, acc, color, startalpha, lifetime, size, fadestep, sizestep, flags, texid, ERenderStyle(style), startroll, rollvel, rollacc);
 	}
 	return 0;
 }
@@ -2837,8 +2926,8 @@ DEFINE_ACTION_FUNCTION(AActor, A_SetAngle)
 	AActor *ref = COPY_AAPTR(self, ptr);
 
 	//We don't want to adjust the player's camera - that could make them sick
-	player_t* player = players[consoleplayer].camera ? players[consoleplayer].camera->player : nullptr;
-	if (!vr_recoil && player != nullptr && ref != nullptr && player->mo == ref)
+	player_t *player = self->player;
+	if (player != nullptr && ref != nullptr && player->mo == ref)
 	{
 		return 0;
 	}
@@ -2868,8 +2957,8 @@ DEFINE_ACTION_FUNCTION(AActor, A_SetPitch)
 	AActor *ref = COPY_AAPTR(self, ptr);
 
 	//We don't want to adjust the player's camera - that could make them sick
-	player_t* player = players[consoleplayer].camera ? players[consoleplayer].camera->player : nullptr;
-	if (!vr_recoil && player != nullptr && ref != nullptr && player->mo == ref)
+	player_t *player = self->player;
+	if (player != nullptr && ref != nullptr && player->mo == ref)
 	{
 		return 0;
 	}
@@ -2898,8 +2987,8 @@ DEFINE_ACTION_FUNCTION(AActor, A_SetRoll)
 	AActor *ref = COPY_AAPTR(self, ptr);
 
 	//We don't want to adjust the player's camera - that could make them sick
-	player_t* player = players[consoleplayer].camera ? players[consoleplayer].camera->player : nullptr;
-	if (!vr_recoil && player != nullptr && ref != nullptr && player->mo == ref)
+	player_t *player = self->player;
+	if (player != nullptr && ref != nullptr && player->mo == ref)
 	{
 		return 0;
 	}
@@ -5070,6 +5159,145 @@ DEFINE_ACTION_FUNCTION(AActor, A_SetMugshotState)
 	PARAM_STRING(name);
 	if (self->CheckLocalView())
 		StatusBar->SetMugShotState(name);
+	return 0;
+}
+
+//==========================================================================
+//
+// A_ChangeModel(modeldef, modelpath, model, modelindex, skinpath, skin, skinid, flags)
+//
+// This function allows the changing of an actor's modeldef, or models and/or skins at a given index
+//==========================================================================
+
+enum ChangeModelFlags
+{
+	CMDL_WEAPONTOPLAYER = 1,
+	CMDL_HIDEMODEL = 1 << 1,
+	CMDL_USESURFACESKIN = 1 << 2,
+};
+
+DEFINE_ACTION_FUNCTION(AActor, A_ChangeModel)
+{
+	PARAM_ACTION_PROLOGUE(AActor);
+	PARAM_NAME(modeldef);
+	PARAM_INT(modelindex);
+	PARAM_STRING_VAL(modelpath);
+	PARAM_NAME(model);
+	PARAM_INT(skinindex);
+	PARAM_STRING_VAL(skinpath);
+	PARAM_NAME(skin);
+	PARAM_INT(flags);
+	PARAM_INT(generatorindex);
+
+	if (self == nullptr)
+		ACTION_RETURN_BOOL(false);
+	else if (modeldef != NAME_None && PClass::FindClass(modeldef.GetChars()) == nullptr)
+	{
+		Printf("Attempt to pass invalid modeldef name %s in %s.", modeldef.GetChars(), self->GetCharacterName());
+		ACTION_RETURN_BOOL(false);
+	}
+	else if (modelindex < 0)
+	{
+		Printf("Attempt to pass invalid model index %d in %s, index must be non-negative.", modelindex, self->GetCharacterName());
+		ACTION_RETURN_BOOL(false);
+	}
+	else if (skinindex < 0)
+	{
+		Printf("Attempt to pass invalid skin index %d in %s, index must be non-negative.", skinindex, self->GetCharacterName());
+		ACTION_RETURN_BOOL(false);
+	}
+
+	AActor* mobj = (ACTION_CALL_FROM_PSPRITE() && (flags & CMDL_WEAPONTOPLAYER)) || ACTION_CALL_FROM_INVENTORY() ? self : stateowner;
+
+	if (modelpath[(int)modelpath.Len() - 1] != '/') modelpath += '/';
+	if (skinpath[(int)skinpath.Len() - 1] != '/') skinpath += '/';
+
+	if (mobj->modelData == nullptr)
+	{
+		auto ptr = Create<DActorModelData>();
+		ptr->hasModel = mobj->hasmodel ? 1 : 0;
+		ptr->modelIDs = *new TArray<int>();
+		ptr->skinIDs = *new TArray<FTextureID>();
+		ptr->surfaceSkinIDs = *new TArray<FTextureID>();
+		ptr->modelFrameGenerators = *new TArray<int>();
+		ptr->modelDef = NAME_None;
+		mobj->modelData = ptr;
+		mobj->hasmodel = 1;
+		GC::WriteBarrier(mobj, ptr);
+	}
+
+	int maxModels = mobj->modelData->modelIDs.Size();
+	int maxSkins = mobj->modelData->skinIDs.Size();
+	int maxSurfaceSkins = mobj->modelData->surfaceSkinIDs.Size();
+	int maxGenerators = mobj->modelData->modelFrameGenerators.Size();
+
+	int skinPosition = skinindex + modelindex * MD3_MAX_SURFACES;
+
+	int queryModel = !(flags & CMDL_HIDEMODEL) ? model != NAME_None ? FindModel(modelpath.GetChars(), model.GetChars()) : -1 : -2;
+
+	//[SM] - Let's clear out any potential entries at the specified indices
+	mobj->modelData->modelDef = modeldef;
+	if(maxModels > modelindex) mobj->modelData->modelIDs.Pop(mobj->modelData->modelIDs[modelindex]);
+	if(maxGenerators > modelindex) mobj->modelData->modelFrameGenerators.Pop(mobj->modelData->modelFrameGenerators[modelindex]);
+
+	if (flags & CMDL_USESURFACESKIN)
+	{
+		if (maxSurfaceSkins > skinPosition)
+			mobj->modelData->surfaceSkinIDs.Delete(skinPosition); //[SM] - It seems the only way to make sure this does what it's told is from Delete, not Pop
+	}
+	else
+	{
+		if (maxSkins > skinindex)
+			mobj->modelData->skinIDs.Pop(mobj->modelData->skinIDs[skinindex]);
+	}
+
+	//[SM] - We need to fill up any holes this new index will make so that it doesn't leave behind any undefined behavior
+	while ((int)mobj->modelData->modelIDs.Size() < modelindex) mobj->modelData->modelIDs.Push(-1);
+	while ((int)mobj->modelData->modelFrameGenerators.Size() < modelindex) mobj->modelData->modelFrameGenerators.Push(-1);
+	if (flags & CMDL_USESURFACESKIN)
+		while ((int)mobj->modelData->surfaceSkinIDs.Size() < skinPosition) mobj->modelData->surfaceSkinIDs.Push(FNullTextureID());
+	else
+		while ((int)mobj->modelData->skinIDs.Size() < skinindex) mobj->modelData->skinIDs.Push(FNullTextureID());
+		
+	mobj->modelData->modelIDs.Insert(modelindex, queryModel);
+	mobj->modelData->modelFrameGenerators.Insert(modelindex, generatorindex);
+	if (flags & CMDL_USESURFACESKIN)
+		mobj->modelData->surfaceSkinIDs.Insert(skinPosition, skin != NAME_None ? LoadSkin(skinpath.GetChars(), skin.GetChars()) : FNullTextureID());
+	else
+		mobj->modelData->skinIDs.Insert(skinindex, skin != NAME_None ? LoadSkin(skinpath.GetChars(), skin.GetChars()) : FNullTextureID());
+
+	//[SM] - We need to serialize file paths and model names so that they are pushed on loading save files. Likewise, let's not include models that were already parsed when initialized.
+	if (queryModel >= 0)
+	{
+		FString fullName;
+		fullName.Format("%s%s", modelpath.GetChars(), model.GetChars());
+		bool allowPush = true;
+		for (unsigned i = 0; i < level.savedModelFiles.Size(); i++) if (!level.savedModelFiles[i].CompareNoCase(fullName)) allowPush = false;
+		for (unsigned i = 0; i < Models.Size()-1; i++) if (!Models[i]->mFileName.CompareNoCase(fullName)) allowPush = false;
+
+		if(allowPush) level.savedModelFiles.Push(fullName);
+	}
+
+	//[SM] - if an indice of modelIDs or skinIDs comes up blank and it's the last one, just delete it. For using very large amounts of indices, common sense says to just not run this repeatedly.
+	while (mobj->modelData->modelIDs.Size() > 0 && mobj->modelData->modelIDs.Last() == -1)
+		mobj->modelData->modelIDs.Pop(mobj->modelData->modelIDs.Last());
+	while (mobj->modelData->modelFrameGenerators.Size() > 0 && mobj->modelData->modelFrameGenerators.Last() == -1)
+		mobj->modelData->modelFrameGenerators.Pop(mobj->modelData->modelFrameGenerators.Last());
+	while (mobj->modelData->skinIDs.Size() > 0 && mobj->modelData->skinIDs.Last() == FNullTextureID())
+		mobj->modelData->skinIDs.Pop(mobj->modelData->skinIDs.Last());
+	while (mobj->modelData->surfaceSkinIDs.Size() > 0 && mobj->modelData->surfaceSkinIDs.Last() == FNullTextureID())
+		mobj->modelData->surfaceSkinIDs.Pop(mobj->modelData->surfaceSkinIDs.Last());
+	
+	if (mobj->modelData->modelIDs.Size() == 0 && mobj->modelData->modelFrameGenerators.Size() == 0 && mobj->modelData->skinIDs.Size() == 0 && mobj->modelData->surfaceSkinIDs.Size() == 0 && modeldef == NAME_None)
+	{
+		mobj->hasmodel = mobj->modelData->hasModel;
+		mobj->modelData->modelIDs.Reset();
+		mobj->modelData->modelFrameGenerators.Reset();
+		mobj->modelData->skinIDs.Reset();
+		mobj->modelData->surfaceSkinIDs.Reset();
+		mobj->modelData->Destroy();
+	}
+
 	return 0;
 }
 

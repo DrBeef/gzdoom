@@ -233,8 +233,7 @@ void FTexture::CreateDefaultBrightmap()
 		// Check for brightmaps
 		if (UseBasePalette() && HasGlobalBrightmap &&
 			UseType != ETextureType::Decal && UseType != ETextureType::MiscPatch && UseType != ETextureType::FontChar &&
-			gl_info.Brightmap == NULL && bWarped == 0
-			) 
+			gl_info.Brightmap == NULL) 
 		{
 			// May have one - let's check when we use this texture
 			const uint8_t *texbuf = GetPixels(DefaultRenderStyle());
@@ -678,7 +677,7 @@ void gl_PrecacheTexture(uint8_t *texhitlist, TMap<PClassActor*, bool> &actorhitl
 			FSpriteModelFrame * smf = FindModelFrame(cls, state.sprite, state.Frame, false);
 			if (smf != NULL)
 			{
-				for (int i = 0; i < MAX_MODELS_PER_FRAME; i++)
+				for (int i = 0; i < smf->modelsAmount; i++)
 				{
 					if (smf->skinIDs[i].isValid())
 					{
@@ -686,8 +685,7 @@ void gl_PrecacheTexture(uint8_t *texhitlist, TMap<PClassActor*, bool> &actorhitl
 					}
 					else if (smf->modelIDs[i] != -1)
 					{
-						Models[smf->modelIDs[i]]->PushSpriteMDLFrame(smf, i);
-						Models[smf->modelIDs[i]]->AddSkins(texhitlist);
+						Models[smf->modelIDs[i]]->AddSkins(texhitlist, (unsigned)(i * MD3_MAX_SURFACES) < smf->surfaceskinIDs.Size()? &smf->surfaceskinIDs[i * MD3_MAX_SURFACES] : nullptr);
 					}
 					if (smf->modelIDs[i] != -1)
 					{

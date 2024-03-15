@@ -49,7 +49,7 @@ extend class Actor
 	action void A_Punch()
 	{
 		int laflags = LAF_ISMELEEATTACK;
-		int snd_channel = CHAN_WEAPON;
+		int alflags = 0;
 		FTranslatedLineTarget t;
 
 		if (player != null)
@@ -57,13 +57,10 @@ extend class Actor
 			Weapon weap = invoker == player.OffhandWeapon ? player.OffhandWeapon : player.ReadyWeapon;
 			if (weap != null && invoker == weap && stateinfo != null && stateinfo.mStateType == STATE_Psprite)
 			{
-				snd_channel = weap.bOffhandWeapon ? CHAN_OFFWEAPON : CHAN_WEAPON;
+				alflags |= weap.bOffhandWeapon ? ALF_ISOFFHAND : 0;
 				laflags |= weap.bOffhandWeapon ? LAF_ISOFFHAND : 0;
-				if (!weap.bDehAmmo)
-				{
-					if (!weap.DepleteAmmo (weap.bAltFire))
-						return;
-				}
+				if (!weap.bDehAmmo && !weap.DepleteAmmo (weap.bAltFire))
+					return;
 			}
 		}
 
@@ -73,14 +70,14 @@ extend class Actor
 			damage *= 10;
 
 		double ang = angle + Random2[Punch]() * (5.625 / 256);
-		double pitch = AimLineAttack (ang, DEFMELEERANGE, null, 0., ALF_CHECK3D);
+		double pitch = AimLineAttack (ang, DEFMELEERANGE, null, 0., ALF_CHECK3D | alflags);
 
 		LineAttack (ang, DEFMELEERANGE, pitch, damage, 'Melee', "BulletPuff", laflags, t);
 
 		// turn to face target
 		if (t.linetarget)
 		{
-			A_StartSound ("*fist", snd_channel);
+			A_StartSound ("*fist", CHAN_WEAPON);
 			angle = t.angleFromSource;
 		}
 	}

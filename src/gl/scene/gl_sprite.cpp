@@ -68,7 +68,7 @@ CVAR(Float, gl_sclipthreshold, 10.0, CVAR_ARCHIVE)
 CVAR(Float, gl_sclipfactor, 1.8, CVAR_ARCHIVE)
 CVAR(Int, gl_particles_style, 2, CVAR_ARCHIVE | CVAR_GLOBALCONFIG) // 0 = square, 1 = round, 2 = smooth
 CVAR(Int, gl_billboard_mode, 0, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
-CVAR(Bool, gl_billboard_faces_camera, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+CVAR(Bool, gl_billboard_faces_camera, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 CVAR(Bool, gl_billboard_particles, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 CVAR(Int, gl_enhanced_nv_stealth, 3, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 CUSTOM_CVAR(Int, gl_fuzztype, 6, CVAR_ARCHIVE)
@@ -165,6 +165,8 @@ void GLSprite::CalculateVertices(FVector3 *v)
 	// [Nash] has +ROLLSPRITE
 	const bool drawRollSpriteActor = (actor != nullptr && actor->renderflags & RF_ROLLSPRITE);
 
+	const bool drawRollParticle = (particle != nullptr && particle->doRoll);
+
 
 	// [fgsfds] check sprite type mask
 	uint32_t spritetype = (uint32_t)-1;
@@ -205,7 +207,7 @@ void GLSprite::CalculateVertices(FVector3 *v)
 		// [fgsfds] calculate yaw vectors
 		float yawvecX = 0, yawvecY = 0, rollDegrees = 0;
 		float angleRad = (270. - GLRenderer->mAngles.Yaw).Radians();
-		if (actor)	rollDegrees = Angles.Roll.Degrees;
+		if (actor || drawRollParticle)	rollDegrees = Angles.Roll.Degrees;
 		if (isFlatSprite)
 		{
 			yawvecX = Angles.Yaw.Cos();
@@ -223,7 +225,7 @@ void GLSprite::CalculateVertices(FVector3 *v)
 				if (useOffsets) mat.Translate(-xx, -zz, -yy);
 			}
 		}
-		else if (drawRollSpriteActor)
+		else if (drawRollSpriteActor || drawRollParticle)
 		{
 			if (useOffsets) mat.Translate(xx, zz, yy);
 			if (drawWithXYBillboard)
@@ -264,25 +266,7 @@ void GLSprite::CalculateVertices(FVector3 *v)
 
 void GLSprite::Draw(int pass)
 {
-	if (pass == GLPASS_DECALS) return;
-
-	if (pass == GLPASS_LIGHTSONLY)
-	{
-		if (modelframe && !modelframe->isVoxel && !(modelframe->flags & MDL_NOPERPIXELLIGHTING))
-		{
-			if (RenderStyle.BlendOp != STYLEOP_Shadow)
-			{
-				if (gl_lights && GLRenderer->mLightCount && mDrawer->FixedColormap == CM_DEFAULT && !fullbright)
-				{
-					if (!particle)
-					{
-						dynlightindex = gl_SetDynModelLight(gl_light_sprites ? actor : nullptr, -1);
-					}
-				}
-			}
-		}
-		return;
-	}
+	if (pass == GLPASS_DECALS || pass == GLPASS_LIGHTSONLY) return;
 
 	bool additivefog = false;
 	bool foglayer = false;
@@ -352,10 +336,10 @@ void GLSprite::Draw(int pass)
 	{
 		if (gl_lights && GLRenderer->mLightCount && mDrawer->FixedColormap == CM_DEFAULT && !fullbright)
 		{
-			if (modelframe && !particle)
-				dynlightindex = gl_SetDynModelLight(gl_light_sprites ? actor : NULL, dynlightindex);
-			else
+			if (dynlightindex == -1)	// only set if we got no light buffer index. This covers all cases where sprite lighting is used.
+			{
 				gl_SetDynSpriteLight(gl_light_sprites ? actor : NULL, gl_light_particles ? particle : NULL);
+			}
 		}
 		sector_t *cursec = actor ? actor->Sector : particle ? particle->subsector->sector : nullptr;
 		if (cursec != nullptr)
@@ -517,6 +501,26 @@ void GLSprite::Draw(int pass)
 //==========================================================================
 inline void GLSprite::PutSprite(bool translucent)
 {
+	if (modelframe && !modelframe->isVoxel && !(modelframe->flags & MDL_NOPERPIXELLIGHTING) && !gl.legacyMode)
+	{
+		if (RenderStyle.BlendOp != STYLEOP_Shadow)
+		{
+			if (gl_lights && GLRenderer->mLightCount && mDrawer->FixedColormap == CM_DEFAULT && !fullbright)
+			{
+				if (!particle)
+				{
+					dynlightindex = gl_SetDynModelLight(gl_light_sprites ? actor : nullptr, -1);
+				}
+				else
+				{
+					DPrintf(DMSG_SPAMMY, "BHUAAAAAAAAAAAAAAAA!!!!");
+				}
+			}
+		}
+	}
+	else
+		dynlightindex = -1;
+
 	int list;
 	// [BB] Allow models to be drawn in the GLDL_TRANSLUCENT pass.
 	if (translucent || actor == nullptr || (!modelframe && (actor->renderflags & RF_SPRITETYPEMASK) != RF_WALLSPRITE))
@@ -527,7 +531,7 @@ inline void GLSprite::PutSprite(bool translucent)
 	{
 		list = GLDL_MODELS;
 	}
-	dynlightindex = -1;
+
 	gl_drawinfo->drawlists[list].AddSprite(this);
 }
 
@@ -703,6 +707,7 @@ void GLSprite::Process(AActor* thing, sector_t * sector, int thruportal, bool is
 {
 	sector_t rs;
 	sector_t * rendersector;
+	auto vp = r_viewpoint;
 
 	if (thing == nullptr)
 		return;
@@ -747,40 +752,50 @@ void GLSprite::Process(AActor* thing, sector_t * sector, int thruportal, bool is
 	DVector3 thingpos = thing->InterpolatedPosition(r_viewpoint.TicFrac);
 	if (thruportal == 1) thingpos += Displacements.getOffset(thing->Sector->PortalGroup, sector->PortalGroup);
 
-	// Some added checks if the camera actor is not supposed to be seen. It can happen that some portal setup has this actor in view in which case it may not be skipped here
-	if (thing == camera && !r_viewpoint.showviewer)
+	AActor *viewmaster = thing;
+	if ((thing->flags8 & MF8_MASTERNOSEE) && thing->master != nullptr)
 	{
-        DVector3 thingorigin = thing->Pos();
-
-        //If we get here, then we want to override the location of the camera actor
-        if (s3d::Stereo3DMode::getCurrentMode().GetTeleportLocation(thingpos))
-        {
-            thingorigin = thingpos;
-
-            //Scale Doom Guy up a bit
-            sprscale *= 1.2;
-        }
-
-		if (!r_viewpoint.showviewer) {
-			if (thruportal == 1)
-				thingorigin += Displacements.getOffset(thing->Sector->PortalGroup,
-													   sector->PortalGroup);
-
-			if (fabs(thingorigin.X - r_viewpoint.ActorPos.X) < 2 &&
-				fabs(thingorigin.Y - r_viewpoint.ActorPos.Y) < 2) {
-				return;
-			}
-		}
+		viewmaster = thing->master;
 	}
 
-	// Thing is invisible if close to the camera.
-	if (thing->renderflags & RF_MAYBEINVISIBLE)
+	// [Nash] filter visibility in mirrors
+	bool isInMirror = GLRenderer->mCurrentPortal && (GLRenderer->mCurrentPortal->GetMirrorFlag() > 0 || GLRenderer->mCurrentPortal->GetPlaneMirrorFlag() > 0);
+	if (thing->renderflags2 & RF2_INVISIBLEINMIRRORS && isInMirror)
 	{
-		if (fabs(thingpos.X - r_viewpoint.CenterEyePos.X) < 32 && fabs(thingpos.Y - r_viewpoint.CenterEyePos.Y) < 32) return;
+		return;
+	}
+	else if (thing->renderflags2 & RF2_ONLYVISIBLEINMIRRORS && !isInMirror)
+	{
+		return;
+	}
+
+	// Some added checks if the camera actor is not supposed to be seen. It can happen that some portal setup has this actor in view in which case it may not be skipped here
+	if (viewmaster == camera && !vp.showviewer)
+	{
+		DVector3 vieworigin = viewmaster->Pos();
+
+		//If we get here, then we want to override the location of the camera actor
+		if (s3d::Stereo3DMode::getCurrentMode().GetTeleportLocation(thingpos))
+		{
+			vieworigin = thingpos;
+
+			//Scale Doom Guy up a bit
+			sprscale *= 1.2;
+		}
+
+		if (thruportal == 1) vieworigin += Displacements.getOffset(viewmaster->Sector->PortalGroup, sector->PortalGroup);
+		if (fabs(vieworigin.X - vp.ActorPos.X) < 2 && fabs(vieworigin.Y - vp.ActorPos.Y) < 2) return;
+	}
+	// Thing is invisible if close to the camera.
+	if (viewmaster->renderflags & RF_MAYBEINVISIBLE)
+	{
+		DVector3 viewpos = viewmaster->InterpolatedPosition(vp.TicFrac);
+		if (thruportal == 1) viewpos += Displacements.getOffset(viewmaster->Sector->PortalGroup, sector->PortalGroup);
+		if (fabs(viewpos.X - vp.CenterEyePos.X) < 32 && fabs(viewpos.Y - vp.CenterEyePos.Y) < 32) return;
 	}
 
 	// Too close to the camera. This doesn't look good if it is a sprite.
-	if (fabs(thingpos.X - r_viewpoint.CenterEyePos.X) < 2 && fabs(thingpos.Y - r_viewpoint.CenterEyePos.Y) < 2)
+	if (thing != camera && fabs(thingpos.X - r_viewpoint.CenterEyePos.X) < 2 && fabs(thingpos.Y - r_viewpoint.CenterEyePos.Y) < 2)
 	{
 		if (r_viewpoint.CenterEyePos.Z >= thingpos.Z - 2 && r_viewpoint.CenterEyePos.Z <= thingpos.Z + thing->Height + 2)
 		{
@@ -838,9 +853,9 @@ void GLSprite::Process(AActor* thing, sector_t * sector, int thruportal, bool is
 	bottomclip = rendersector->PortalBlocksMovement(sector_t::floor) ? -LARGE_VALUE : rendersector->GetPortalPlaneZ(sector_t::floor);
 
 	uint32_t spritetype = (thing->renderflags & RF_SPRITETYPEMASK);
-	x = thingpos.X;
-	z = thingpos.Z;
-	y = thingpos.Y;
+	x = thingpos.X + thing->WorldOffset.X;
+	z = thingpos.Z + thing->WorldOffset.Z;
+	y = thingpos.Y + thing->WorldOffset.Y;
 	if (spritetype == RF_FACESPRITE) z -= thing->Floorclip; // wall and flat sprites are to be considered level geometry so this may not apply.
 
 	// snap shadow Z to the floor
@@ -855,7 +870,7 @@ void GLSprite::Process(AActor* thing, sector_t * sector, int thruportal, bool is
 		z += fz;
 	}
 
-	modelframe = isPicnumOverride ? nullptr : FindModelFrame(thing->GetClass(), spritenum, thing->frame, !!(thing->flags & MF_DROPPED));
+	modelframe = isPicnumOverride ? nullptr : FindModelFrame(thing->modelData != nullptr ? thing->modelData->modelDef != NAME_None ? PClass::FindActor(thing->modelData->modelDef) : thing->GetClass() : thing->GetClass(), spritenum, thing->frame, !!(thing->flags & MF_DROPPED));
 
 	// don't bother drawing sprite shadows if this is a model (it will never look right)
 	if (modelframe && isSpriteShadow)
@@ -890,6 +905,10 @@ void GLSprite::Process(AActor* thing, sector_t * sector, int thruportal, bool is
 			{
 				// Flat sprites cannot rotate in a predictable manner.
 				sprangle = 0.;
+				rot = 0;
+			}
+			if (thing == camera && GLPortal::GetRecursion() > 0)
+			{
 				rot = 0;
 			}
 			patch = sprites[spritenum].GetSpriteFrame(thing->frame, rot, sprangle, &mirror, !!(thing->renderflags & RF_SPRITEFLIP));
@@ -927,7 +946,7 @@ void GLSprite::Process(AActor* thing, sector_t * sector, int thruportal, bool is
 			thing->renderflags ^= RF_XFLIP;
 
 		r.Scale(sprscale.X, isSpriteShadow ? sprscale.Y * 0.15 : sprscale.Y);
-		
+
 		float SpriteOffY = thing->SpriteOffset.Y;
 		float rightfac = -r.left - thing->SpriteOffset.X;
 		float leftfac = rightfac - r.width;
@@ -1271,7 +1290,16 @@ void GLSprite::ProcessParticle (particle_t *particle, sector_t *sector)//, int s
 	}
 
 	trans=particle->alpha;
-	RenderStyle = STYLE_Translucent;
+
+	if(particle->style != STYLE_None)
+	{
+		RenderStyle = particle->style;
+	}
+	else
+	{
+		RenderStyle = STYLE_Translucent;
+	}
+
 	OverrideShader = 0;
 
 	ThingColor = particle->color;
@@ -1283,17 +1311,21 @@ void GLSprite::ProcessParticle (particle_t *particle, sector_t *sector)//, int s
 	bottomclip = -LARGE_VALUE;
 	index = 0;
 
+	bool has_texture = !particle->texture.isNull();
+
+	int particle_style = has_texture ? 2 : gl_particles_style; // Treat custom texture the same as smooth particles
+
 	// [BB] Load the texture for round or smooth particles
-	if (gl_particles_style)
+	if (particle_style)
 	{
 		FTextureID lump;
-		if (gl_particles_style == 1)
+		if (particle_style == 1)
 		{
 			lump = GLRenderer->glPart2;
 		}
-		else if (gl_particles_style == 2)
+		else if (particle_style == 2)
 		{
-			lump = GLRenderer->glPart;
+			lump = has_texture ? particle -> texture : GLRenderer->glPart;
 		}
 		else lump.SetNull();
 
@@ -1321,10 +1353,16 @@ void GLSprite::ProcessParticle (particle_t *particle, sector_t *sector)//, int s
 	x = float(particle->Pos.X) + xvf;
 	y = float(particle->Pos.Y) + yvf;
 	z = float(particle->Pos.Z) + zvf;
+
+	if(particle->doRoll)
+	{
+		float rvf = (particle->RollVel) * timefrac;
+		Angles.Roll = particle->Roll + rvf;
+	}
 	
 	float factor;
-	if (gl_particles_style == 1) factor = 1.3f / 7.f;
-	else if (gl_particles_style == 2) factor = 2.5f / 7.f;
+	if (particle_style == 1) factor = 1.3f / 7.f;
+	else if (particle_style == 2) factor = 2.5f / 7.f;
 	else factor = 1 / 7.f;
 	float scalefac=particle->size * factor;
 
@@ -1345,7 +1383,7 @@ void GLSprite::ProcessParticle (particle_t *particle, sector_t *sector)//, int s
 	fullbright = !!particle->bright;
 	
 	// [BB] Translucent particles have to be rendered without the alpha test.
-	if (gl_particles_style != 2 && trans>=1.0f-FLT_EPSILON) hw_styleflags = STYLEHW_Solid;
+	if (particle_style != 2 && trans>=1.0f-FLT_EPSILON) hw_styleflags = STYLEHW_Solid;
 	else hw_styleflags = STYLEHW_NoAlphaTest;
 
 	if (sector->e->XFloor.lightlist.Size() != 0 && mDrawer->FixedColormap == CM_DEFAULT && !fullbright)

@@ -41,6 +41,7 @@ extern TArray<VSMatrix> gl_MatrixStack;
 EXTERN_CVAR(Bool, gl_direct_state_change)
 EXTERN_CVAR(Bool, gl_global_fade)
 EXTERN_CVAR(Color, gl_global_fade_color)
+EXTERN_CVAR(Bool, gl_enhanced_nightvision)
 
 struct FStateVec4
 {
@@ -88,6 +89,7 @@ class FRenderState
 	int mLightIndex;
 	int mSpecialEffect;
 	int mTextureMode;
+	int mTextureModeFlags;
 	int mDesaturation;
 	int mSoftLight;
 	int mGlobalFadeMode;
@@ -119,6 +121,7 @@ class FRenderState
 	PalEntry mObjectColor2;
 	PalEntry mSceneColor;
 	FStateVec4 mDynColor;
+	FStateVec4 mDetailParms;
 	float mClipSplit[2];
 
 	int mEffectState;
@@ -169,6 +172,7 @@ public:
 		mShaderTimer = mat->tex->gl_info.shaderspeed;
 		SetSpecular(mat->tex->gl_info.Glossiness, mat->tex->gl_info.SpecularLevel);
 		mat->Bind(clampmode, translation);
+		mTextureModeFlags = mat->GetLayerFlags();
 	}
 
 	void Apply();
@@ -400,6 +404,11 @@ public:
 		mSplitBottomPlane.Set((float)bn.X, (float)bn.Y, (float)bottom.negiC, (float)bottom.fD());
 	}
 
+	void SetDetailParms(float xscale, float yscale, float bias)
+	{
+		mDetailParms.Set(xscale, yscale, bias, 0);
+	}
+
 	void SetDynLight(float r, float g, float b)
 	{
 		mDynColor.Set(r, g, b, 0);
@@ -468,13 +477,22 @@ public:
 
 	void InitSceneClearColor()
 	{
+		float r, g, b;
 		if (gl_global_fade)
 		{
 			mSceneColor = mFadeColor;
 		}
-		GLRenderer->mSceneClearColor[0] = mSceneColor.r / 255.f;
-		GLRenderer->mSceneClearColor[1] = mSceneColor.g / 255.f;
-		GLRenderer->mSceneClearColor[2] = mSceneColor.b / 255.f;
+		if (gl_enhanced_nightvision && mColormapState == CM_LITE)
+		{
+			r = 0.375f, g = 1.0f, b = 0.375f;
+		}
+		else
+		{
+			r = g = b = 1.f;
+		}
+		GLRenderer->mSceneClearColor[0] = mSceneColor.r * r / 255.f;
+		GLRenderer->mSceneClearColor[1] = mSceneColor.g * g / 255.f;
+		GLRenderer->mSceneClearColor[2] = mSceneColor.b * b / 255.f;
 	}
 
 	void ResetFadeColor()

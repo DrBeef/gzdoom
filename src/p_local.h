@@ -35,6 +35,7 @@
 #include "doomtype.h"
 #include "vectors.h"
 #include "dobject.h"
+#include "s_sound.h"
 
 const double NO_VALUE = FLT_MAX;
 
@@ -125,17 +126,17 @@ AActor *P_OldSpawnMissile(AActor *source, AActor *owner, AActor *dest, PClassAct
 AActor *P_SpawnMissile (AActor* source, AActor* dest, PClassActor *type, AActor* owner = NULL);
 AActor *P_SpawnMissileZ(AActor* source, double z, AActor* dest, PClassActor *type);
 AActor *P_SpawnMissileXYZ(DVector3 pos, AActor *source, AActor *dest, PClassActor *type, bool checkspawn = true, AActor *owner = NULL);
-AActor *P_SpawnMissileAngleZSpeed(AActor *source, double z, PClassActor *type, DAngle angle, double vz, double speed, AActor *owner = NULL, bool checkspawn = true, int aimflags = 0);
+AActor *P_SpawnMissileAngleZSpeed(AActor *source, double z, PClassActor *type, DAngle angle, double vz, double speed, AActor *owner = NULL, bool checkspawn = true);
 AActor *P_SpawnMissileZAimed(AActor *source, double z, AActor *dest, PClassActor *type);
 
 
-AActor *P_SpawnPlayerMissile (AActor *source, double x, double y, double z, PClassActor *type, DAngle angle, 
+AActor *P_SpawnPlayerMissile (AActor *source, double x, double y, double z, PClassActor *type, DAngle angle, DAngle pitch,
 							  FTranslatedLineTarget *pLineTarget = NULL, AActor **MissileActor = NULL, bool nofreeaim = false, bool noautoaim = false, int aimflags = 0);
 
 
 void P_CheckFakeFloorTriggers(AActor *mo, double oldz, bool oldz_has_viewheight = false);
 
-AActor *P_SpawnSubMissile (AActor *source, PClassActor *type, AActor *target, int aimflags = 0);	// Strife uses it
+AActor *P_SpawnSubMissile (AActor *source, PClassActor *type, AActor *target, DAngle angle, int aimflags = 0);	// Strife uses it
 
 
 //
@@ -404,7 +405,7 @@ enum	// P_RailAttack / A_RailAttack / A_CustomRailgun / P_DrawRailTrail flags
 
 bool	P_CheckMissileSpawn(AActor *missile, double maxdist);
 
-void	P_PlaySpawnSound(AActor *missile, AActor *spawner);
+void	P_PlaySpawnSound(AActor *missile, AActor *spawner, int channel = 0, EChanFlags flags = 0);
 
 // [RH] Position the chasecam
 void	P_AimCamera (AActor *t1, DVector3 &, DAngle &, sector_t *&sec, bool &unlinked);

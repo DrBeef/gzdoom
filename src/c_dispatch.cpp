@@ -206,7 +206,7 @@ FButtonStatus Button_Mlook, Button_Klook, Button_Use, Button_AltAttack,
 	Button_Strafe, Button_LookDown, Button_LookUp, Button_Back,
 	Button_Forward, Button_Right, Button_Left, Button_MoveDown,
 	Button_MoveUp, Button_Jump, Button_ShowScores, Button_Crouch,
-	Button_Zoom, Button_Reload,
+	Button_Zoom, Button_Reload, Button_MH_Reload, Button_OH_Reload,
 	Button_User1, Button_User2, Button_User3, Button_User4,
 	Button_AM_PanLeft, Button_AM_PanRight, Button_AM_PanDown, Button_AM_PanUp,
 	Button_AM_ZoomIn, Button_AM_ZoomOut,
@@ -242,6 +242,7 @@ FActionMap ActionMaps[] =
 	{ &Button_MoveDown,		0x6167ce99, "movedown" },
 	{ &Button_AltAttack,	0x676885b8, "altattack" },
 	{ &Button_MoveLeft,		0x6fa41b84, "moveleft" },
+	{ &Button_OH_Reload,	0x7343401c, "oh_reload" },
 	{ &Button_MoveRight,	0x818f08e6, "moveright" },
 	{ &Button_AM_PanRight,	0x8197097b, "am_panright"},
 	{ &Button_AM_PanUp,		0x8d89955e, "am_panup"} ,
@@ -256,6 +257,7 @@ FActionMap ActionMaps[] =
 	{ &Button_ShowScores,	0xd5897c73, "showscores" },
 	{ &Button_Speed,		0xe0ccb317, "speed" },
 	{ &Button_Use,			0xe0cfc260, "use" },
+	{ &Button_MH_Reload,	0xe953ec11, "mh_reload" },
 	{ &Button_MoveUp,		0xfdd701c7, "moveup" },
 };
 #define NUM_ACTIONS countof(ActionMaps)
@@ -686,13 +688,31 @@ void C_DoCommand (const char *cmd, int keynum)
 		}
 		else
 		{ // We don't know how to handle this command
-			Printf ("Unknown command \"%.*s\"\n", (int)len, beg);
+			DPrintf(DMSG_WARNING, "Unknown command \"%.*s\"\n", (int)len, beg);
 		}
 	}
 }
 
 // This is only accessible to the special menu item to run CCMDs.
 DEFINE_ACTION_FUNCTION(DOptionMenuItemCommand, DoCommand)
+{
+	if (CurrentMenu == nullptr) return 0;
+	PARAM_PROLOGUE;
+	PARAM_STRING(cmd);
+	PARAM_BOOL(unsafe);
+
+	// Only menus are allowed to execute CCMDs.
+	if (DMenu::InMenu == 0)
+	{
+		I_FatalError("Attempt to execute CCMD '%s' outside of menu code", cmd.GetChars());
+	}
+
+	UnsafeExecutionScope scope(unsafe);
+	C_DoCommand(cmd);
+	return 0;
+}
+
+DEFINE_ACTION_FUNCTION(DOptionMenuItemCommandInput, DoCommand)
 {
 	if (CurrentMenu == nullptr) return 0;
 	PARAM_PROLOGUE;

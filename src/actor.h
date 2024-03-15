@@ -413,7 +413,23 @@ enum ActorFlag8
 	MF8_STOPRAILS		= 0x00000200,	// [MC] Prevent rails from going further if an actor has this flag.
 	MF8_ABSVIEWANGLES	= 0x00000400,	// [MC] By default view angle/pitch/roll is an offset. This will make it absolute instead.
 	MF8_FALLDAMAGE		= 0x00000800,	// Monster will take fall damage regardless of map settings.
-	MF8_ALLOWTHRUBITS		= 0x00008000,	// [MC] Enable ThruBits property
+	MF8_MINVISIBLE		= 0x00001000,	// Actor not visible to monsters
+	MF8_MVISBLOCKED		= 0x00002000,	// Monster(only) sight checks to actor always fail
+	MF8_ALLOWTHRUBITS	= 0x00008000,	// [MC] Enable ThruBits property
+	MF8_FULLVOLSEE		= 0x00010000,	// Play see sound at full volume
+	MF8_E1M8BOSS		= 0x00020000,	// MBF21 boss death.
+	MF8_E2M8BOSS		= 0x00040000,	// MBF21 boss death.
+	MF8_E3M8BOSS		= 0x00080000,	// MBF21 boss death.
+	MF8_E4M8BOSS		= 0x00100000,	// MBF21 boss death.
+	MF8_E4M6BOSS		= 0x00200000,	// MBF21 boss death.
+	MF8_MAP07BOSS1		= 0x00400000,	// MBF21 boss death.
+	MF8_MAP07BOSS2		= 0x00800000,	// MBF21 boss death.
+	MF8_AVOIDHAZARDS	= 0x01000000,	// MBF AI enhancement.
+	MF8_STAYONLIFT		= 0x02000000,	// MBF AI enhancement.
+	MF8_DONTFOLLOWPLAYERS	= 0x04000000,	// [inkoalawetrust] Friendly monster will not follow players.
+	MF8_SEEFRIENDLYMONSTERS	= 0X08000000,	// [inkoalawetrust] Hostile monster can see friendly monsters.
+	MF8_CROSSLINECHECK	= 0x10000000,	// [MC]Enables CanCrossLine virtual
+	MF8_MASTERNOSEE		= 0x20000000,	// Don't show object in first person if their master is the current camera.
 };
 
 // --- mobj.renderflags ---
@@ -461,6 +477,12 @@ enum ActorRenderFlag
 	RF_CASTSPRITESHADOW = 0x20000000,	// actor will cast a sprite shadow
 	RF_NOINTERPOLATEVIEW = 0x40000000,	// don't interpolate the view next frame if this actor is a camera. NO-OP
 	RF_NOSPRITESHADOW = 0x80000000,		// actor will not cast a sprite shadow
+};
+
+enum ActorRenderFlag2
+{
+	RF2_INVISIBLEINMIRRORS		= 0x0001,	// [Nash] won't render in mirrors
+	RF2_ONLYVISIBLEINMIRRORS	= 0x0002,	// [Nash] only renders in mirrors
 };
 
 // This translucency value produces the closest match to Heretic's TINTTAB.
@@ -564,6 +586,7 @@ typedef TFlags<ActorFlag6> ActorFlags6;
 typedef TFlags<ActorFlag7> ActorFlags7;
 typedef TFlags<ActorFlag8> ActorFlags8;
 typedef TFlags<ActorRenderFlag> ActorRenderFlags;
+typedef TFlags<ActorRenderFlag2> ActorRenderFlags2;
 typedef TFlags<ActorBounceFlag> ActorBounceFlags;
 typedef TFlags<ActorRenderFeatureFlag> ActorRenderFeatureFlags;
 DEFINE_TFLAGS_OPERATORS (ActorFlags)
@@ -575,6 +598,7 @@ DEFINE_TFLAGS_OPERATORS (ActorFlags6)
 DEFINE_TFLAGS_OPERATORS (ActorFlags7)
 DEFINE_TFLAGS_OPERATORS (ActorFlags8)
 DEFINE_TFLAGS_OPERATORS (ActorRenderFlags)
+DEFINE_TFLAGS_OPERATORS (ActorRenderFlags2)
 DEFINE_TFLAGS_OPERATORS (ActorBounceFlags)
 DEFINE_TFLAGS_OPERATORS (ActorRenderFeatureFlags)
 
@@ -637,6 +661,21 @@ struct FDropItem
 	FName Name;
 	int Probability;
 	int Amount;
+};
+
+class DActorModelData : public DObject
+{
+	DECLARE_CLASS(DActorModelData, DObject);
+public:
+	FName				modelDef;
+	bool				hasModel;
+	TArray<int>			modelIDs;
+	TArray<FTextureID>	skinIDs;
+	TArray<FTextureID>	surfaceSkinIDs;
+	TArray<int>			modelFrameGenerators;
+
+	DActorModelData() = default;
+	virtual void Serialize(FSerializer& arc) override;
 };
 
 const double MinVel = EQUAL_EPSILON;
@@ -723,6 +762,10 @@ public:
 	// Something just touched this actor.
 	virtual void Touch(AActor *toucher);
 	void CallTouch(AActor *toucher);
+
+	// Apply gravity and/or make actor sink in water.
+	virtual void FallAndSink(double grav, double oldfloorz);
+	void CallFallAndSink(double grav, double oldfloorz);
 
 	// Centaurs and ettins squeal when electrocuted, poisoned, or "holy"-ed
 	// Made a metadata property so no longer virtual
@@ -1044,6 +1087,7 @@ public:
 	uint32_t			RenderHidden;		// current renderer must *not* have any of these features
 
 	ActorRenderFlags	renderflags;		// Different rendering flags
+	ActorRenderFlags2	renderflags2;		// More rendering flags...
 	ActorFlags		flags;
 	ActorFlags2		flags2;			// Heretic flags
 	ActorFlags3		flags3;			// [RH] Hexen/Heretic actor-dependant behavior made flaggable
@@ -1063,8 +1107,10 @@ public:
 	DVector3		OldRenderPos;
 	DVector3		Vel;
 	DVector2		SpriteOffset;
+	DVector3		WorldOffset;
 	double			Speed;
 	double			FloatSpeed;
+	TObjPtr<DActorModelData*>		modelData;
 
 // interaction info
 	FBlockNode		*BlockNode;			// links in blocks (if needed)
@@ -1144,6 +1190,7 @@ public:
 	AActor			*inext, **iprev;// Links to other mobjs in same bucket
 	TObjPtr<AActor*> goal;			// Monster's goal if not chasing anything
 	int				waterlevel;		// 0=none, 1=feet, 2=waist, 3=eyes
+	double			waterdepth;		// Stores how deep into water you are, in map units
 	uint8_t			boomwaterlevel;	// splash information for non-swimmable water sectors
 	uint8_t			MinMissileChance;// [RH] If a random # is > than this, then missile attack.
 	int8_t			LastLookPlayerNumber;// Player number last looked for (if TIDtoHate == 0)
@@ -1285,6 +1332,7 @@ public:
 	bool IsMapActor();
 	int GetTics(FState * newstate);
 	bool SetState (FState *newstate, bool nofunction=false);
+	int UpdateWaterDepth(bool splash);
 	virtual void SplashCheck();
 	virtual bool UpdateWaterLevel (bool splash=true);
 	bool isFast();
@@ -1519,6 +1567,8 @@ public:
 	bool isFrozen() const;
 
 	bool				hasmodel;
+
+	void PlayerLandedMakeGruntSound(AActor* onmobj);
 
 	//For VR, override firing position - Thank-you Fishbiter for this code!!
 	bool OverrideAttackPosDir;

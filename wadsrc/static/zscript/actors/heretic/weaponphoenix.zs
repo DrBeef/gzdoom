@@ -156,14 +156,13 @@ class PhoenixRodPowered : PhoenixRod
 		}
 
 		int hand = weapon.bOffhandWeapon ? 1 : 0;
-		int snd_channel = weapon.bOffhandWeapon ? CHAN_OFFWEAPON : CHAN_WEAPON;
 		PhoenixRodPowered flamethrower = PhoenixRodPowered(weapon);
 		
 		if (flamethrower == null || --flamethrower.FlameCount == 0)
 		{ // Out of flame
 			player.SetPsprite(hand ? PSP_OFFHANDWEAPON : PSP_WEAPON, flamethrower.FindState("Powerdown"));
 			player.refire = 0;
-			A_StopSound (snd_channel);
+			A_StopSound (CHAN_WEAPON);
 			return;
 		}
 
@@ -174,32 +173,47 @@ class PhoenixRodPowered : PhoenixRod
 		let velxy = Vel.XY;
 		let directionAngle = angle;
 		let directionPitch = pitch;
-		if (player.mo.OverrideAttackPosDir)
+		let directionRoll = roll;
+		if (weapon && weapon == invoker && player.mo.OverrideAttackPosDir)
 		{
-			if (hand == 1)
+			Vector3 dir;
+			Vector3 yoffsetDir;
+			if (weapon.bOffhandWeapon)
 			{
 				spawnpos = player.mo.OffhandPos;
-				let dir = player.mo.OffhandDir(self, angle, pitch);
-				directionAngle = dir.x;
-				directionPitch = dir.y;
+				directionRoll = -player.mo.OffhandRoll;
+				dir = player.mo.OffhandDir(self, angle, pitch);
+				yoffsetDir = player.mo.OffhandDir(self, angle - 90, pitch);
 			}
 			else
 			{
 				spawnpos = player.mo.AttackPos;
-				let dir = player.mo.AttackDir(self, angle, pitch);
-				directionAngle = dir.x;
-				directionPitch = dir.y;
+				directionRoll = -player.mo.AttackRoll;
+				dir = player.mo.AttackDir(self, angle, pitch);
+				yoffsetDir = player.mo.AttackDir(self, angle - 90, pitch);
 			}
-			spawnpos.X += xo;
-			spawnpos.Y += yo;
+			directionAngle = dir.x;
+			directionPitch = dir.y;
+
+			spawnpos += (
+				xo * cos(dir.x) * cos(dir.y),
+				xo * sin(dir.x) * cos(dir.y),
+				xo * -sin(dir.y)
+			);
+			spawnpos += (
+				yo * cos(yoffsetDir.x) * cos(yoffsetDir.y),
+				yo * sin(yoffsetDir.x) * cos(yoffsetDir.y),
+				yo * -sin(yoffsetDir.y)
+			);
+			
 			slope = -clamp(tan(directionPitch), -5, 5);
-			velxy = (0, 0);
 		}
 		Actor mo = Spawn("PhoenixFX2", spawnpos, ALLOW_REPLACE);
 		if (mo != null)
 		{
 			mo.target = self;
 			mo.Angle = directionAngle;
+			mo.Roll = directionRoll;
 			mo.VelFromAngle();
 			mo.Vel.XY += velxy;
 			mo.Vel.Z = mo.Speed * slope;
@@ -207,7 +221,7 @@ class PhoenixRodPowered : PhoenixRod
 		}
 		if (!player.refire)
 		{
-			A_StartSound("weapons/phoenixpowshoot", snd_channel, CHANF_LOOPING);
+			A_StartSound("weapons/phoenixpowshoot", CHAN_WEAPON, CHANF_LOOPING);
 		}	
 	}
 
@@ -223,14 +237,12 @@ class PhoenixRodPowered : PhoenixRod
 		{
 			return;
 		}
-		int snd_channel = CHAN_WEAPON;
 		Weapon weapon = invoker == player.OffhandWeapon ? player.OffhandWeapon : player.ReadyWeapon;
 		if (weapon != null)
 		{
-			snd_channel = weapon.bOffhandWeapon ? CHAN_OFFWEAPON : CHAN_WEAPON;
 			weapon.DepleteAmmo (weapon.bAltFire);
 		}
-		A_StopSound (snd_channel);
+		A_StopSound (CHAN_WEAPON);
 	}
 
 	
@@ -340,6 +352,7 @@ class PhoenixFX2 : Actor
 		Projectile;
 		RenderStyle "Add";
 		+ZDOOMTRANS
+		+ROLLSPRITE
 		Obituary "$OB_MPPPHOENIXROD";
 	}
 

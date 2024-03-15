@@ -92,6 +92,7 @@ class Actor : Thinker native
 	native vector3 Prev;
 	native uint ThruBits;
 	native vector2 SpriteOffset;
+	native vector3 WorldOffset;
 	native double spriteAngle;
 	native double spriteRotation;
 	native float VisibleStartAngle;
@@ -158,6 +159,7 @@ class Actor : Thinker native
 	native readonly int TID;
 	native readonly int TIDtoHate;
 	native readonly int WaterLevel;
+	native readonly double WaterDepth;
 	native int Score;
 	native int Accuracy;
 	native int Stamina;
@@ -476,6 +478,7 @@ class Actor : Thinker native
 	virtual native void Die(Actor source, Actor inflictor, int dmgflags = 0, Name MeansOfDeath = 'none');
 	virtual native bool Slam(Actor victim);
 	virtual native void Touch(Actor toucher);
+	virtual native void FallAndSink(double grav, double oldfloorz);
 	private native void Substitute(Actor replacement);
 	native ui void DisplayNameTag();
 
@@ -490,6 +493,12 @@ class Actor : Thinker native
 
 	// Called by PIT_CheckThing to check if two actors actually can collide.
 	virtual bool CanCollideWith(Actor other, bool passive)
+	{
+		return true;
+	}
+
+	// Called by PIT_CheckLine to check if an actor can cross a line.
+	virtual bool CanCrossLine(Line crossing, Vector3 next)
 	{
 		return true;
 	}
@@ -675,8 +684,8 @@ class Actor : Thinker native
 	native Actor SpawnMissileZ (double z, Actor dest, class<Actor> type);
 	native Actor SpawnMissileAngleZSpeed (double z, class<Actor> type, double angle, double vz, double speed, Actor owner = null, bool checkspawn = true, int aimflags = 0);
 	native Actor SpawnMissileZAimed (double z, Actor dest, Class<Actor> type);
-	native Actor SpawnSubMissile(Class<Actor> type, Actor target, int aimflags = 0);
-	native Actor, Actor SpawnPlayerMissile(class<Actor> type, double angle = 1e37, double x = 0, double y = 0, double z = 0, out FTranslatedLineTarget pLineTarget = null, bool nofreeaim = false, bool noautoaim = false, int aimflags = 0);
+	native Actor SpawnSubMissile(Class<Actor> type, Actor target, int aimflags = 0, double angle = 1e37);
+	native Actor, Actor SpawnPlayerMissile(class<Actor> type, double angle = 1e37, double x = 0, double y = 0, double z = 0, out FTranslatedLineTarget pLineTarget = null, bool nofreeaim = false, bool noautoaim = false, int aimflags = 0, double pitch = 1e37);
 	native void SpawnTeleportFog(Vector3 pos, bool beforeTele, bool setTarget);
 	native Actor RoughMonsterSearch(int distance, bool onlyseekable = false, bool frontonly = false);
 	native int ApplyDamageFactor(Name damagetype, int damage);
@@ -781,6 +790,20 @@ class Actor : Thinker native
 	native clearscope double GetGravity() const;
 	native void DoMissileDamage(Actor target);
 
+	clearscope double PitchTo(Actor target, double zOfs = 0, double targZOfs = 0, bool absolute = false) const
+	{
+		Vector3 origin = (pos.xy, pos.z - floorClip + zOfs);
+		Vector3 dest = (target.pos.xy, target.pos.z - target.floorClip + targZOfs);
+
+		Vector3 diff;
+		if (!absolute)
+			diff = level.Vec3Diff(origin, dest);
+		else
+			diff = dest - origin;
+
+		return -atan2(diff.z, diff.xy.Length());
+	}
+
 	//==========================================================================
 	//
 	// AActor :: GetLevelSpawnTime
@@ -877,14 +900,14 @@ class Actor : Thinker native
 	//
 	//---------------------------------------------------------------------------
 
-	Actor SpawnMissileAngle (class<Actor> type, double angle, double vz, int aimflags = 0)
+	Actor SpawnMissileAngle (class<Actor> type, double angle, double vz)
 	{
-		return SpawnMissileAngleZSpeed (pos.z + 32 + GetBobOffset(), type, angle, vz, GetDefaultSpeed (type), aimflags: aimflags);
+		return SpawnMissileAngleZSpeed (pos.z + 32 + GetBobOffset(), type, angle, vz, GetDefaultSpeed (type));
 	}
 
-	Actor SpawnMissileAngleZ (double z, class<Actor> type, double angle, double vz, Actor owner = null, int aimflags = 0)
+	Actor SpawnMissileAngleZ (double z, class<Actor> type, double angle, double vz, Actor owner = null)
 	{
-		return SpawnMissileAngleZSpeed (z, type, angle, vz, GetDefaultSpeed (type), owner, aimflags: aimflags);
+		return SpawnMissileAngleZSpeed (z, type, angle, vz, GetDefaultSpeed (type), owner);
 	}
 	
 
@@ -1077,8 +1100,9 @@ class Actor : Thinker native
 	native void A_WolfAttack(int flags = 0, sound whattoplay = "weapons/pistol", double snipe = 1.0, int maxdamage = 64, int blocksize = 128, int pointblank = 2, int longrange = 4, double runspeed = 160.0, class<Actor> pufftype = "BulletPuff");
 	deprecated("4.3", "Use A_StartSound() instead") action native clearscope void A_PlaySound(sound whattoplay = "weapons/pistol", int slot = CHAN_BODY, double volume = 1.0, bool looping = false, double attenuation = ATTN_NORM, bool local = false, double pitch = 0.0);
 	action native clearscope void A_StartSound(sound whattoplay, int slot = CHAN_BODY, int flags = 0, double volume = 1.0, double attenuation = ATTN_NORM, double pitch = 0.0, double startTime = 0.0);
-	native void A_SoundVolume(int slot, double volume);
-	native void A_SoundPitch(int slot, double pitch);
+	action native clearscope void A_StartSoundIfNotSame(sound whattoplay, sound checkagainst, int slot = CHAN_BODY, int flags = 0, double volume = 1.0, double attenuation = ATTN_NORM, double pitch = 0.0, double startTime = 0.0);
+	action native void A_SoundVolume(int slot, double volume);
+	action native void A_SoundPitch(int slot, double pitch);
 	deprecated("2.3", "Use A_StartSound(<sound>, CHAN_WEAPON) instead") void A_PlayWeaponSound(sound whattoplay, bool fullvol = false) { A_StartSound(whattoplay, CHAN_WEAPON, 0, 1, fullvol? ATTN_NONE : ATTN_NORM); }
 	action native void A_StopSound(int slot = CHAN_VOICE);	// Bad default but that's what is originally was...
 	void A_StopAllSounds()	{	A_StopSounds(0,0);	}
@@ -1102,11 +1126,13 @@ class Actor : Thinker native
 	native void A_FadeTo(double target, double amount = 0.1, int flags = 0);
 	native void A_SpawnDebris(class<Actor> spawntype, bool transfer_translation = false, double mult_h = 1, double mult_v = 1);
 	native void A_SpawnParticle(color color1, int flags = 0, int lifetime = TICRATE, double size = 1, double angle = 0, double xoff = 0, double yoff = 0, double zoff = 0, double velx = 0, double vely = 0, double velz = 0, double accelx = 0, double accely = 0, double accelz = 0, double startalphaf = 1, double fadestepf = -1, double sizestep = 0);
+	native void A_SpawnParticleEx(color color1, TextureID texture, int style = STYLE_None, int flags = 0, int lifetime = TICRATE, double size = 1, double angle = 0, double xoff = 0, double yoff = 0, double zoff = 0, double velx = 0, double vely = 0, double velz = 0, double accelx = 0, double accely = 0, double accelz = 0, double startalphaf = 1, double fadestepf = -1, double sizestep = 0, double startroll = 0, double rollvel = 0, double rollacc = 0);
 	native void A_ExtChase(bool usemelee, bool usemissile, bool playactive = true, bool nightmarefast = false);
 	native void A_DropInventory(class<Inventory> itemtype, int amount = -1);
 	native void A_SetBlend(color color1, double alpha, int tics, color color2 = 0, double alpha2 = 0.);
 	deprecated("2.3", "Use 'b<FlagName> = [true/false]' instead") native void A_ChangeFlag(string flagname, bool value);
 	native void A_ChangeCountFlags(int kill = FLAG_NO_CHANGE, int item = FLAG_NO_CHANGE, int secret = FLAG_NO_CHANGE);
+	action native void A_ChangeModel(name modeldef, int modelindex = 0, string modelpath = "", name model = "", int skinindex = 0, string skinpath = "", name skin = "", int flags = 0, int generatorindex = -1);
 
 	void A_SetFriendly (bool set)
 	{
@@ -1130,7 +1156,7 @@ class Actor : Thinker native
 	native state A_MonsterRefire(int chance, statelabel label);
 	native void A_LookEx(int flags = 0, double minseedist = 0, double maxseedist = 0, double maxheardist = 0, double fov = 0, statelabel label = null);
 	
-	native void A_Recoil(double xyvel);
+	action native void A_Recoil(double xyvel);
 	native int A_RadiusGive(class<Inventory> itemtype, double distance, int flags, int amount = 0, class<Actor> filter = null, name species = "None", double mindist = 0, int limit = 0);
 	native void A_CustomMeleeAttack(int damage = 0, sound meleesound = "", sound misssound = "", name damagetype = "none", bool bleed = true);
 	native void A_CustomComboAttack(class<Actor> missiletype, double spawnheight, int damage, sound meleesound = "", name damagetype = "none", bool bleed = true);
@@ -1273,6 +1299,35 @@ class Actor : Thinker native
 		}
 	}
 	
+	virtual void PlayerLandedMakeGruntSound(actor onmobj)
+	{
+		bool grunted;
+
+		// [RH] only make noise if alive
+		if (self.health > 0 && !self.player.morphTics)
+		{
+			grunted = false;
+			// Why should this number vary by gravity?
+			if (self.Vel.Z < -self.player.mo.GruntSpeed)
+			{
+				A_StartSound("*grunt", CHAN_VOICE);
+				grunted = true;
+			}
+			bool isliquid = (pos.Z <= floorz) && HitFloor ();
+			if (onmobj != NULL || !isliquid)
+			{
+				if (!grunted)
+				{
+					A_StartSound("*land", CHAN_AUTO);
+				}
+				else
+				{
+					A_StartSoundIfNotSame("*land", "*grunt", CHAN_AUTO);
+				}
+			}
+		}
+	}
+
 	//----------------------------------------------------------------------------
 	//
 	// PROC A_CheckSkullDone

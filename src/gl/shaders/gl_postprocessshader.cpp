@@ -26,6 +26,7 @@
 #include "gl/gl_functions.h"
 #include "vectors.h"
 #include "w_wad.h"
+#include "m_argv.h"
 #include "gl/system/gl_interface.h"
 #include "gl/system/gl_framebuffer.h"
 #include "gl/system/gl_debug.h"
@@ -38,7 +39,7 @@
 #include "textures/textures.h"
 #include "textures/bitmap.h"
 
-CVAR(Bool, gl_custompost, true, 0)
+CVAR(Bool, gl_custompost, true, CVAR_GLOBALCONFIG|CVAR_ARCHIVE)
 
 TArray<PostProcessShader> PostProcessShaders;
 
@@ -56,7 +57,7 @@ FCustomPostProcessShaders::~FCustomPostProcessShaders()
 
 void FCustomPostProcessShaders::Run(FString target)
 {
-	if (!gl_custompost)
+	if (!gl_custompost || Args->CheckParm("-nocustompost"))
 		return;
 
 	for (auto &shader : mShaders)
@@ -116,6 +117,15 @@ void PostProcessShaderInstance::Run()
 bool PostProcessShaderInstance::IsShaderSupported()
 {
 	int activeShaderVersion = (int)round(gl.glslversion * 10) * 10;
+	if (gl.es)
+	{
+		if (activeShaderVersion >= 200)
+			activeShaderVersion = 410;
+		if (activeShaderVersion >= 300)
+			activeShaderVersion = 430;
+		if (activeShaderVersion >= 310)
+			activeShaderVersion = 450;
+	}
 	return activeShaderVersion >= Desc->ShaderVersion;
 }
 

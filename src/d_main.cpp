@@ -105,6 +105,8 @@
 #include "s_music.h"
 #include "swrenderer/r_swcolormaps.h"
 
+#include <QzDoom/VrCommon.h>
+
 EXTERN_CVAR(Bool, hud_althud)
 EXTERN_CVAR(Bool, cl_customizeinvulmap)
 void DrawHUD();
@@ -541,6 +543,7 @@ CVAR (Flag, sv_killbossmonst,		dmflags2, DF2_KILLBOSSMONST);
 CVAR (Flag, sv_nocountendmonst,		dmflags2, DF2_NOCOUNTENDMONST);
 CVAR (Flag, sv_respawnsuper,		dmflags2, DF2_RESPAWN_SUPER);
 CVAR (Flag, sv_nothingspawn,		dmflags2, DF2_NO_COOP_THING_SPAWN);
+CVAR (Flag, sv_alwaysspawnmulti,	dmflags2, DF2_ALWAYS_SPAWN_MULTI);
 CVAR (Flag, sv_doublespawn,			dmflags2, DF2_DOUBLESPAWN);
 
 //==========================================================================
@@ -621,7 +624,7 @@ CUSTOM_CVAR(Int, compatmode, 0, CVAR_ARCHIVE|CVAR_NOINITCALL)
 	case 5: // MBF compat mode
 		v = COMPATF_TRACE | COMPATF_SOUNDTARGET | COMPATF_BOOMSCROLL | COMPATF_MISSILECLIP | COMPATF_MUSHROOM |
 			COMPATF_MBFMONSTERMOVE | COMPATF_NOBLOCKFRIENDS | COMPATF_MASKEDMIDTEX;
-		w = COMPATF2_EXPLODE1;
+		w = COMPATF2_EXPLODE1 | COMPATF2_AVOID_HAZARDS | COMPATF2_STAYONLIFT;
 		break;
 
 	case 6:	// Boom with some added settings to reenable some 'broken' behavior
@@ -634,7 +637,7 @@ CUSTOM_CVAR(Int, compatmode, 0, CVAR_ARCHIVE|CVAR_NOINITCALL)
 		v = COMPATF_CORPSEGIBS | COMPATF_NOBLOCKFRIENDS | COMPATF_MBFMONSTERMOVE | COMPATF_INVISIBILITY |
 			COMPATF_NOTOSSDROPS | COMPATF_MUSHROOM | COMPATF_NO_PASSMOBJ | COMPATF_BOOMSCROLL | COMPATF_WALLRUN |
 			COMPATF_TRACE | COMPATF_HITSCAN | COMPATF_MISSILECLIP | COMPATF_MASKEDMIDTEX | COMPATF_SOUNDTARGET;
-		w = COMPATF2_POINTONLINE | COMPATF2_EXPLODE1 | COMPATF2_EXPLODE2;
+		w = COMPATF2_POINTONLINE | COMPATF2_EXPLODE1 | COMPATF2_EXPLODE2 | COMPATF2_AVOID_HAZARDS | COMPATF2_STAYONLIFT;
 		break;
 	}
 	compatflags = v;
@@ -685,6 +688,8 @@ CVAR (Flag, compat_explode1,			compatflags2, COMPATF2_EXPLODE1);
 CVAR (Flag, compat_explode2,			compatflags2, COMPATF2_EXPLODE2);
 CVAR (Flag, compat_railing,				compatflags2, COMPATF2_RAILING);
 CVAR (Flag, compat_oldrandom,			compatflags2, COMPATF2_OLD_RANDOM_GENERATOR);
+CVAR (Flag, compat_avoidhazard,			compatflags2, COMPATF2_AVOID_HAZARDS);
+CVAR (Flag, compat_stayonlift,			compatflags2, COMPATF2_STAYONLIFT);
 
 CVAR(Bool, vid_activeinbackground, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 
@@ -762,6 +767,7 @@ void D_Display ()
 			// Reload crosshair if transitioned to a different size
 			ST_LoadCrosshair (true);
 			AM_NewResolution ();
+			AActor::RecreateAllAttachedLights();
 			// Reset the mouse cursor in case the bit depth changed
 			vid_cursor.Callback();
 		}
@@ -2484,6 +2490,25 @@ static void FixUnityStatusBar()
 	}
 }
 
+static void InitShutdown()
+{
+	D_Cleanup();
+	CloseNetwork();
+	GC::FinalGC = true;
+	GC::FullGC();
+	GC::DelSoftRootHead();	// the soft root head will not be collected by a GC so we have to do it explicitly
+	C_DeinitConsole();
+	R_DeinitColormaps();
+	R_Shutdown();
+	I_DeleteRenderer();
+	I_ShutdownGraphics();
+	//I_ShutdownInput();
+	M_SaveDefaultsFinal();
+	DeleteStartupScreen();
+	delete Args;
+	Args = nullptr;
+}
+
 //==========================================================================
 //
 // D_DoomMain
@@ -2977,13 +3002,11 @@ static int D_DoomMain_Internal (void)
 //			I_SetWindowTitle(DoomStartupInfo.Name.GetChars());
 
 		D_DoomLoop ();		// this only returns if a 'restart' CCMD is given.
-		// 
-		// Clean up after a restart
-		//
 
-		D_Cleanup();
-
-		gamestate = GS_STARTUP;
+		// We replace the vanilla zdoom restart with a complete Android application restart instead
+		// all the arguments passed are retained since we read the commandline file again.
+		InitShutdown();
+		QzDoom_Restart();
 	}
 	while (1);
 }
@@ -2991,6 +3014,9 @@ static int D_DoomMain_Internal (void)
 int D_DoomMain()
 {
 	int ret = 0;
+	GameTicRate = TICRATE;
+	I_InitTime();
+	
 	try
 	{
 		ret = D_DoomMain_Internal();
@@ -3007,21 +3033,7 @@ int D_DoomMain()
 	// Unless something really bad happened, the game should only exit through this single point in the code.
 	// No more 'exit', please.
 	// Todo: Move all engine cleanup here instead of using exit handlers and replace the scattered 'exit' calls with a special exception.
-	D_Cleanup();
-	CloseNetwork();
-	GC::FinalGC = true;
-	GC::FullGC();
-	GC::DelSoftRootHead();	// the soft root head will not be collected by a GC so we have to do it explicitly
-	C_DeinitConsole();
-	R_DeinitColormaps();
-	R_Shutdown();
-	I_DeleteRenderer();
-	I_ShutdownGraphics();
-	//I_ShutdownInput();
-	M_SaveDefaultsFinal();
-	DeleteStartupScreen();
-	delete Args;
-	Args = nullptr;
+	InitShutdown();
 	return ret;
 }
 
@@ -3030,7 +3042,6 @@ FArgs *Args;
 
 void VR_DoomMain(int argc, char** argv)
 {
-    progdir = "/sdcard/QuestZDoom/";
     Args = new FArgs(argc, argv);
     D_DoomMain ();
 }
@@ -3142,6 +3153,13 @@ UNSAFE_CCMD(restart)
 
 	wantToRestart = true;
 }
+
+CCMD(qzd_restart)
+{
+	InitShutdown();
+	QzDoom_Restart();
+}
+
 
 //==========================================================================
 //

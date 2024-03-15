@@ -57,6 +57,7 @@
 **
 */
 
+#include <QzDoom/VrCommon.h>
 #include <stdlib.h>
 #include <math.h>
 #include <algorithm>
@@ -101,11 +102,13 @@
 #include "r_sky.h"
 #include "g_levellocals.h"
 #include "actorinlines.h"
-#include "gl/stereo3d/gl_stereo3d.h"
 
 CVAR(Bool, cl_bloodsplats, true, CVAR_ARCHIVE)
 CVAR(Int, sv_smartaim, 0, CVAR_ARCHIVE | CVAR_SERVERINFO)
 CVAR(Bool, cl_doautoaim, false, CVAR_ARCHIVE)
+CVAR(Int, use_mode, 0, CVAR_ARCHIVE | CVAR_GLOBALCONFIG);
+
+EXTERN_CVAR (Bool, use_action_spawn_yzoffset)
 
 static void CheckForPushSpecial(line_t *line, int side, AActor *mobj, DVector2 * posforwindowcheck = NULL);
 static void SpawnShootDecal(AActor *t1, AActor *defaults, const FTraceResults &trace, int hand = 0);
@@ -161,6 +164,38 @@ bool P_CanCollideWith(AActor *tmthing, AActor *thing)
 	{
 		VMCall(func, params, 3, &ret, 1);
 		if (!retval) return false;
+	}
+	return true;
+}
+
+//==========================================================================
+// 
+// CanCrossLine
+//
+// Checks if an actor can cross a line after all checks are processed.
+// If false, the line blocks them.
+//==========================================================================
+
+bool P_CanCrossLine(AActor *mo, line_t *line, DVector3 next)
+{
+	static unsigned VIndex = ~0u;
+	if (VIndex == ~0u)
+	{
+		VIndex = GetVirtualIndex(RUNTIME_CLASS(AActor), "CanCrossLine");
+		assert(VIndex != ~0u);
+	}
+
+	VMValue params[] = { mo, line, next.X, next.Y, next.Z, false };
+	VMReturn ret;
+	int retval;
+	ret.IntAt(&retval);
+
+	auto clss = mo->GetClass();
+	VMFunction *func = clss->Virtuals.Size() > VIndex ? clss->Virtuals[VIndex] : nullptr;
+	if (func != nullptr)
+	{
+		VMCall(func, params, countof(params), &ret, 1);
+		return retval;
 	}
 	return true;
 }
@@ -966,6 +1001,13 @@ bool PIT_CheckLine(FMultiBlockLinesIterator &mit, FMultiBlockLinesIterator::Chec
 		}
 	}
 
+	if ((tm.thing->flags8 & MF8_CROSSLINECHECK) && !P_CanCrossLine(tm.thing, ld, tm.pos))
+	{
+		if (wasfit)
+			tm.thing->BlockingLine = ld;
+		
+		return false;
+	}
 	// If the floor planes on both sides match we should recalculate open.bottom at the actual position we are checking
 	// This is to avoid bumpy movement when crossing a linedef with the same slope on both sides.
 	// This should never narrow down the opening, though, only widen it.
@@ -2526,6 +2568,7 @@ bool P_TryMove(AActor *thing, const DVector2 &pos,
 					P_TranslatePortalAngle(ld, hit.angle);
 				}
 				R_AddInterpolationPoint(hit);
+				resetDoomYaw = true;
 			}
 			if (port->mType == PORTT_LINKED)
 			{
@@ -4346,19 +4389,40 @@ DAngle P_AimLineAttack(AActor *t1, DAngle angle, double distance, FTranslatedLin
 		}
 	}
 
+	DVector3 startPos = t1->Pos();
+	DAngle aimPitch = t1->Angles.Pitch;
+	DAngle aimAngle = angle;
+	if (t1->player != NULL && t1->player->mo->OverrideAttackPosDir && !(flags & ALF_CHECKCONVERSATION))
+	{
+		if (flags & ALF_ISOFFHAND)
+		{
+			startPos = t1->player->mo->OffhandPos;
+			DVector3 direction = t1->player->mo->OffhandDir(t1, angle, t1->Angles.Pitch);
+			aimPitch = direction.Pitch();
+			aimAngle = direction.Angle();
+		}
+		else 
+		{
+			startPos = t1->player->mo->AttackPos;
+			DVector3 direction = t1->player->mo->AttackDir(t1, angle, t1->Angles.Pitch);
+			aimPitch = direction.Pitch();
+			aimAngle = direction.Angle();
+		}
+	}
+
 	aim_t aim;
 
 	aim.flags = flags;
 	aim.shootthing = t1;
 	aim.friender = (friender == nullptr) ? t1 : friender;
 	aim.aimdir = aim_t::aim_up | aim_t::aim_down;
-	aim.startpos = t1->Pos();
-	aim.aimtrace = angle.ToVector(distance);
+	aim.startpos = startPos;
+	aim.aimtrace = aimAngle.ToVector(distance);
 	aim.limitz = aim.shootz = shootz;
-	aim.toppitch = t1->Angles.Pitch - vrange;
-	aim.bottompitch = t1->Angles.Pitch + vrange;
+	aim.toppitch = aimPitch - vrange;
+	aim.bottompitch = aimPitch + vrange;
 	aim.attackrange = distance;
-	aim.aimpitch = t1->Angles.Pitch;
+	aim.aimpitch = aimPitch;
 	aim.lastsector = t1->Sector;
 	aim.startfrac = 0;
 	aim.unlinked = false;
@@ -4372,7 +4436,13 @@ DAngle P_AimLineAttack(AActor *t1, DAngle angle, double distance, FTranslatedLin
 	{
 		*pLineTarget = *result;
 	}
-	return result->linetarget ? result->pitch : t1->Angles.Pitch;
+
+	aimPitch = t1->Angles.Pitch;
+	if (result->linetarget && (t1->player == NULL || !t1->player->mo->OverrideAttackPosDir))
+	{
+		aimPitch = result->pitch;
+	}
+	return aimPitch;
 }
 
 //==========================================================================
@@ -4441,6 +4511,8 @@ AActor *P_LineAttack(AActor *t1, DAngle angle, double distance,
 	bool nointeract = !!(flags & LAF_NOINTERACT);
 	DVector3 fromPos;
 	DVector3 direction;
+	DVector3 yoffsetDir;
+	DVector3 zoffsetDir;
 	double shootz;
 	FTraceResults trace;
 	Origin TData;
@@ -4499,11 +4571,15 @@ AActor *P_LineAttack(AActor *t1, DAngle angle, double distance,
 		{
 			fromPos = t1->player->mo->OffhandPos;
 			direction = t1->player->mo->OffhandDir(t1, angle, pitch);
+			yoffsetDir = t1->player->mo->OffhandDir(t1, angle - 90, pitch);
+			zoffsetDir = t1->player->mo->OffhandDir(t1, angle, pitch + 90);
 		}
 		else 
 		{
 			fromPos = t1->player->mo->AttackPos;
 			direction = t1->player->mo->AttackDir(t1, angle, pitch);
+			yoffsetDir = t1->player->mo->AttackDir(t1, angle - 90, pitch);
+			zoffsetDir = t1->player->mo->AttackDir(t1, angle, pitch + 90);
 		}
 	}
 	else
@@ -4580,17 +4656,40 @@ AActor *P_LineAttack(AActor *t1, DAngle angle, double distance,
 	DVector3 tempos;
 
 	if (flags & LAF_ABSPOSITION)
-	{
+	{  // the offset parameters below are treated as absolute coordinates
 		tempos = DVector3(offsetforward, offsetside, sz);
 	}
 	else if (flags & LAF_ABSOFFSET)
-	{
+	{  // angle is used as an absolute angle instead of a relative one to the calling actor's angle
 		tempos = t1->Vec2OffsetZ(offsetforward, offsetside, shootz);
 	}
 	else if (0.0 == offsetforward && 0.0 == offsetside)
 	{
 		// Default case so exact comparison is enough
 		tempos = fromPos;
+	}
+	else if (t1->player != NULL && t1->player->mo->OverrideAttackPosDir)
+	{
+		tempos += DVector3(
+			offsetforward * direction.Angle().Cos() * direction.Pitch().Cos(),
+			offsetforward * direction.Angle().Sin() * direction.Pitch().Cos(),
+			offsetforward * -direction.Pitch().Sin()
+		);
+
+		if (!use_action_spawn_yzoffset)
+			offsetside = sz = 0;
+
+		tempos += DVector3(
+			offsetside * yoffsetDir.Angle().Cos() * yoffsetDir.Pitch().Cos(),
+			offsetside * yoffsetDir.Angle().Sin() * yoffsetDir.Pitch().Cos(),
+			offsetside * -yoffsetDir.Pitch().Sin()
+		);
+
+		tempos += DVector3(
+			sz * zoffsetDir.Pitch().Cos() * zoffsetDir.Angle().Cos(), 
+			sz * zoffsetDir.Pitch().Cos() * zoffsetDir.Angle().Sin(),
+			sz * -zoffsetDir.Pitch().Sin()
+		);
 	}
 	else
 	{
@@ -4659,7 +4758,7 @@ AActor *P_LineAttack(AActor *t1, DAngle angle, double distance,
 				int hand = flags & LAF_ISOFFHAND;
 				// [TN] If the actor or weapon has a decal defined, use that one.
 				if (t1->DecalGenerator != NULL ||
-					(weapon != NULL && weapon->DecalGenerator != NULL))
+					(t1->player != NULL && weapon != NULL && weapon->DecalGenerator != NULL))
 				{
 					// [ZK] If puff has FORCEDECAL set, do not use the weapon's decal
 					if (puffDefaults->flags7 & MF7_FORCEDECAL && puff != NULL && puff->DecalGenerator)
@@ -4737,7 +4836,7 @@ AActor *P_LineAttack(AActor *t1, DAngle angle, double distance,
 			{
 				int dmgflags = DMG_INFLICTOR_IS_PUFF | pflag;
 				// Allow MF5_PIERCEARMOR on a weapon as well.
-				if ((dmgflags & DMG_PLAYERATTACK) && weapon != NULL &&
+				if (t1->player != NULL && (dmgflags & DMG_PLAYERATTACK) && weapon != NULL &&
 					weapon->flags5 & MF5_PIERCEARMOR)
 				{
 					dmgflags |= DMG_NO_ARMOR;
@@ -5264,22 +5363,59 @@ void P_RailAttack(FRailParams *p)
 
 	if (source->player != NULL && source->player->mo->OverrideAttackPosDir)
 	{
+		DVector3 offsetxyDir;
+		DVector3 offsetzDir;
 		if (p->flags & RAF_ISOFFHAND)
 		{
 			start = source->player->mo->OffhandPos;
 			direction = source->player->mo->OffhandDir(source, angle, pitch);
+			offsetxyDir = source->player->mo->OffhandDir(source, source->Angles.Yaw - 90, source->Angles.Pitch );
+			offsetzDir = source->player->mo->OffhandDir(source, source->Angles.Yaw, source->Angles.Pitch + 90);
 		}
 		else 
 		{
 			start = source->player->mo->AttackPos;
 			direction = source->player->mo->AttackDir(source, angle, pitch);
+			offsetxyDir = source->player->mo->AttackDir(source, source->Angles.Yaw - 90, source->Angles.Pitch);
+			offsetzDir = source->player->mo->AttackDir(source, source->Angles.Yaw, source->Angles.Pitch + 90);
 		}
+
+		if (!use_action_spawn_yzoffset)
+			p->offset_xy = p->offset_z = 0;
+
+		start += DVector3(
+			p->offset_xy * offsetxyDir.Angle().Cos() * offsetxyDir.Pitch().Cos(),
+			p->offset_xy * offsetxyDir.Angle().Sin() * offsetxyDir.Pitch().Cos(),
+			p->offset_xy * -offsetxyDir.Pitch().Sin()
+		);
+
+		start += DVector3(
+			p->offset_z * offsetzDir.Pitch().Cos() * offsetzDir.Angle().Cos(), 
+			p->offset_z * offsetzDir.Pitch().Cos() * offsetzDir.Angle().Sin(),
+			p->offset_z * -offsetzDir.Pitch().Sin()
+		);
 	}
 	else
 	{
 		DVector2 xy = source->Vec2Angle(p->offset_xy, angle - 90.);
 		start = DVector3(xy.X, xy.Y, shootz);
 		direction = vec;
+	}
+
+	if (source->player != NULL)
+	{
+		if (p->damage > 0) {
+			//Haptics
+			long rightHanded = vr_control_scheme < 10;
+			rightHanded = (p->flags & RAF_ISOFFHAND) ? 1 - rightHanded : rightHanded;
+			QzDoom_Vibrate(150, rightHanded ? 1 : 0, 0.8);
+			VR_HapticEvent("fire_weapon", rightHanded ? 2 : 1, 100 * C_GetExternalHapticLevelValue("fire_weapon"), 0, 0);
+
+			if (weaponStabilised) {
+				QzDoom_Vibrate(150, rightHanded ? 0 : 1, 0.6);
+				VR_HapticEvent("fire_weapon", rightHanded ? 1 : 2, 100 * C_GetExternalHapticLevelValue("fire_weapon"), 0, 0);
+			}
+		}
 	}
 
 	RailData rail_data;
@@ -5688,16 +5824,44 @@ bool P_NoWayTraverse(AActor *usething, const DVector2 &start, const DVector2 &en
 void P_UseLines(player_t *player)
 {
 	bool foundline = false;
-
+	bool used = false;
 	// If the player is transitioning a portal, use the group that is at its vertical center.
 	DVector2 start = player->mo->GetPortalTransition(player->mo->Height / 2);
 	// [NS] Now queries the Player's UseRange.
 	DVector2 end = start + player->mo->Angles.Yaw.ToVector(player->mo->FloatVar(NAME_UseRange));
 
+	if (use_mode == 0 || use_mode == 2)
+	{
+		used |= P_UseTraverse(player->mo, start, end, foundline);
+	}
+
+	if (player->mo->OverrideAttackPosDir && use_mode > 0)
+	{
+		DAngle aimAngle;
+		float useRange;
+		if (!used)
+		{
+			start = player->mo->AttackPos.XY();
+			aimAngle = player->mo->AttackAngle + 90;
+			useRange = player->ReadyWeapon != nullptr ? player->ReadyWeapon->FloatVar(NAME_UseRange) : 48;
+			end = start + aimAngle.ToVector(useRange);
+			used = P_UseTraverse(player->mo, start, end, foundline);
+		}
+
+		if (!used)
+		{
+			start = player->mo->OffhandPos.XY();
+			aimAngle = player->mo->OffhandAngle + 90;
+			useRange = player->OffhandWeapon != nullptr ? player->OffhandWeapon->FloatVar(NAME_UseRange) : 48;
+			end = start + aimAngle.ToVector(useRange);
+			used = P_UseTraverse(player->mo, start, end, foundline);
+		}
+	}
+
 	// old code:
 	// This added test makes the "oof" sound work on 2s lines -- killough:
 
-	if (!P_UseTraverse(player->mo, start, end, foundline))
+	if (!used)
 	{ // [RH] Give sector a chance to eat the use
 		sector_t *sec = player->mo->Sector;
 		int spac = SECSPAC_Use;
@@ -5718,22 +5882,9 @@ void P_UseLines(player_t *player)
 //
 //==========================================================================
 
-int P_UsePuzzleItem(AActor *PuzzleItemUser, int PuzzleItemType)
+int P_UsePuzzleItem(AActor *PuzzleItemUser, int PuzzleItemType, double x1, double y1, double x2, double y2)
 {
-	DVector2 start;
-	DVector2 end;
-	double usedist;
-
-	// [NS] If it's a Player, get their UseRange.
-	if (PuzzleItemUser->player)
-		usedist = PuzzleItemUser->player->mo->FloatVar(NAME_UseRange);
-	else
-		usedist = USERANGE;
-
-	start = PuzzleItemUser->GetPortalTransition(PuzzleItemUser->Height / 2);
-	end = PuzzleItemUser->Angles.Yaw.ToVector(usedist);
-
-	FPathTraverse it(start.X, start.Y, end.X, end.Y, PT_DELTA | PT_ADDLINES | PT_ADDTHINGS);
+	FPathTraverse it(x1, y1, x2, y2, PT_DELTA | PT_ADDLINES | PT_ADDTHINGS);
 	intercept_t *in;
 
 	while ((in = it.Next()))
@@ -5781,6 +5932,54 @@ int P_UsePuzzleItem(AActor *PuzzleItemUser, int PuzzleItemType)
 		return true;
 	}
 	return false;
+}
+
+int P_UsePuzzleItem(AActor *PuzzleItemUser, int PuzzleItemType)
+{
+	DVector2 start;
+	DVector2 end;
+	double usedist;
+	bool used = false;
+
+	// [NS] If it's a Player, get their UseRange.
+	player_t *player = PuzzleItemUser->player;
+	if (player != nullptr)
+		usedist = player->mo->FloatVar(NAME_UseRange);
+	else
+		usedist = USERANGE;
+
+	start = PuzzleItemUser->GetPortalTransition(PuzzleItemUser->Height / 2);
+	end = PuzzleItemUser->Angles.Yaw.ToVector(usedist);
+
+	if (use_mode == 0 || use_mode == 2)
+	{
+		used |= P_UsePuzzleItem(PuzzleItemUser, PuzzleItemType, start.X, start.Y, end.X, end.Y);
+	}
+
+	if (player != nullptr && player->mo->OverrideAttackPosDir && use_mode > 0)
+	{
+		DAngle aimAngle;
+		float useRange;
+		if (!used)
+		{
+			start = player->mo->AttackPos.XY();
+			aimAngle = player->mo->AttackAngle + 90;
+			useRange = player->ReadyWeapon != nullptr ? player->ReadyWeapon->FloatVar(NAME_UseRange) : 48;
+			end = aimAngle.ToVector(useRange);
+			used |= P_UsePuzzleItem(PuzzleItemUser, PuzzleItemType, start.X, start.Y, end.X, end.Y);
+		}
+
+		if (!used)
+		{
+			start = player->mo->OffhandPos.XY();
+			aimAngle = player->mo->OffhandAngle + 90;
+			useRange = player->OffhandWeapon != nullptr ? player->OffhandWeapon->FloatVar(NAME_UseRange) : 48;
+			end = aimAngle.ToVector(useRange);
+			used |= P_UsePuzzleItem(PuzzleItemUser, PuzzleItemType, start.X, start.Y, end.X, end.Y);
+		}
+	}
+	
+	return used;
 }
 
 //==========================================================================

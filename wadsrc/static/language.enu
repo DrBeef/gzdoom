@@ -1731,6 +1731,7 @@ OPTMNU_UPDATEMISSING		= "Update missing defaults";
 OPTMNU_RESETTOSAVED			= "Reset to last saved";
 OPTMNU_CONSOLE				= "Go to console";
 OPTMNU_REVERB				= "Reverb environment editor";
+OPTMNU_EXPERIMENTAL			= "Experimental Options";
 OS_TITLE					= "Option Search";
 OS_ANY						= "Search for any term";
 OS_ALL						= "Search for all terms";
@@ -1742,12 +1743,16 @@ OS_LABEL					= "Search:";
 CNTRLMNU_TITLE					= "CUSTOMIZE CONTROLS";
 CNTRLMNU_SWITCHTEXT1			= "ENTER to change, BACKSPACE to clear";
 CNTRLMNU_SWITCHTEXT2			= "Press new key for control, ESC to cancel";
+CNTRLMNU_DBLBINDTEXT_L1			= "The following actions occurs";
+CNTRLMNU_DBLBINDTEXT_L2			= "when a key is double-clicked.";
 CNTRLMNU_CONTROLS				= "Controls";
 CNTRLMNU_ATTACK					= "Fire";
 CNTRLMNU_ALTATTACK				= "Secondary Fire";
 CNTRLMNU_OH_ATTACK				= "Offhand Fire";
 CNTRLMNU_OH_ALTATTACK			= "Offhand Secondary Fire";
 CNTRLMNU_RELOAD					= "Weapon Reload";
+CNTRLMNU_MAINHANDRELOAD			= "Mainhand reload";
+CNTRLMNU_OFFHANDRELOAD			= "Offhand reload";
 CNTRLMNU_ZOOM					= "Weapon Zoom";
 CNTRLMNU_USER1					= "Weapon State 1";
 CNTRLMNU_USER2					= "Weapon State 2";
@@ -1783,7 +1788,7 @@ MNU_MULTIPLAYER					= "Multiplayer";
 CNTRLMNU_WEAPONS_TITLE				= "Customize Weapon Controls";
 CNTRLMNU_INVENTORY_TITLE			= "Customize Inventory Controls";
 CNTRLMNU_OTHER_TITLE				= "Customize Other Controls";
-CNTRLMNU_POPUPS_TITLE				= "Strife Popup Screens Controls";
+CNTRLMNU_POPUPS_TITLE				= "Popup Screens Controls";
 CNTRLMNU_PAUSE					= "Pause";
 CNTRLMNU_DISPLAY_INC				= "Increase Display Size";
 CNTRLMNU_DISPLAY_DEC				= "Decrease Display Size";
@@ -1838,6 +1843,10 @@ CNTRLMNU_MISSION				= "Mission objectives";
 CNTRLMNU_KEYS					= "Keys list";
 CNTRLMNU_STATS					= "Weapons/ammo/stats";
 CNTRLMNU_LAYOUT					= "Default Control Layout";
+CNTRLMNU_USEFLECHETTE			= "Use flechette";
+CNTRLMNU_SHOWDBLBINDINGS		= "Show double bindings";
+CNTRLMNU_DOUBLEBINDINGS			= "Double bindings";
+CNTRLMNU_SINGLEBINDINGS			= "Single bindings";
 
 // Mouse Menu
 
@@ -1933,6 +1942,12 @@ DSPLYMNU_GPUSWITCH				= "Notebook Switchable GPU";
 DSPLYMNU_CUSTOMINVERTMAP		= "Custom Inverse Map";
 DSPLYMNU_CUSTOMINVERTC1			= "Custom Inverse Color Dark";
 DSPLYMNU_CUSTOMINVERTC2			= "Custom Inverse Color Light";
+DSPLYMNU_WEAPHPOS				= "Horizontal position";
+DSPLYMNU_WEAPVPOS				= "Vertical position";
+DSPLYMNU_WEAPSCALE				= "Scale";
+DSPLYMNU_WEAPOFSX				= "Position left/right";
+DSPLYMNU_WEAPOFSY				= "Position down/up";
+DSPLYMNU_WEAPOFSZ				= "Position forward/backward";
 
 // HUD Options
 HUDMNU_TITLE					= "HUD Options";
@@ -2025,6 +2040,10 @@ MISCMNU_ALWAYSTALLY				= "Show Tally Screen On Level Exit";
 MISCMNU_SETSLOTSTRICT			= "Strict KEYCONF Weapons/Players";
 MISCMNU_HIDEEXTREME				= "Hide extreme skill level";
 MISCMNU_PISTOLSTART				= "Pistol start (Doom)";
+MISCMNU_DISABLEAUTOLOAD			= "Disable autoload";
+MISCMNU_LOADLIGHTS				= "Load light definitions";
+MISCMNU_LOADBRIGHTMAPS			= "Load brightmap definitions";
+MISCMNU_SHOWEXPERIMENTAL		= "Show experimental options";
 
 // Automap Options
 AUTOMAPMNU_TITLE				= "AUTOMAP OPTIONS";
@@ -2187,6 +2206,7 @@ GMPLYMNU_KEEPAMMO			= "Keep ammo";
 GMPLYMNU_LOSEHALFAMMO		= "Lose half ammo";
 GMPLYMNU_SPAWNWHEREDIED		= "Spawn where died";
 GMPLYMNU_DOUBLESPAWN		= "Spawn double the monsters";
+GMPLYMNU_ALWAYSSPAWNMULTI	= "Always spawn multiplayer objects";
 
 // Compatibility Options
 CMPTMNU_TITLE				= "COMPATIBILITY OPTIONS";
@@ -2792,6 +2812,7 @@ GLTEXMNU_SORTDRAWLIST 	= "Sort draw lists by texture";
 
 // Dynamic Light Options
 GLLIGHTMNU_TITLE					= "DYNAMIC LIGHTS";
+GLLIGHTMNU_ADVANCED					= "Advanced options";
 GLLIGHTMNU_LIGHTSENABLED			= "Dynamic Lights (OpenGL)";
 GLLIGHTMNU_LIGHTDEFS				= "Enable light definitions";
 GLLIGHTMNU_CLIPLIGHTS				= "Clip lights";
@@ -2805,6 +2826,9 @@ GLLIGHTMNU_LIGHTBUFFERTYPE			= "Light buffer type";
 GLLIGHTMNU_LIGHTSCULL				= "Light cull distance";
 GLLIGHTMNU_MAXINTENSITY				= "Light max intensity (range)";
 GLLIGHTMNU_MAXCOLLECTEDSS			= "Max collected sub sectors";
+GLLIGHTMNU_MAXWALLLIGHTS			= "Max wall lights";
+GLLIGHTMNU_MAXFLATLIGHTS			= "Max flat lights";
+GLLIGHTMNU_LIGHTRANGELIMIT			= "Light range limit";
 
 // OpenGL Preferences
 GLPREFMNU_TITLE 				= "OPENGL PREFERENCES";
@@ -2813,7 +2837,9 @@ GLPREFMNU_FOGMODE 				= "Fog mode";
 GLPREFMNU_FOGFORCEFULLBRIGHT 	= "Fog forces fullbright";
 GLPREFMNU_WPNLIGHTSTR 			= "Weapon light strength";
 GLPREFMNU_MIRRORS				= "Display mirrors";
-GLPREFMNU_ENVIRONMENTMAPMIRROR 	= "Environment map on mirrors";
+GLPREFMNU_ENVIRONMENTMAPMIRROR 	= "Reflective texture";
+GLPREFMNU_MIRRORPLAYER			= "Display player";
+GLPREFMNU_MIRRORRECURSIONS		= "Number of recursions";
 GLPREFMNU_ENV 					= "Enhanced night vision mode";
 GLPREFMNU_ENVSTEALTH 			= "ENV shows stealth monsters";
 GLPREFMNU_SPRBRIGHTFOG 			= "Force brightness in fog";
@@ -2842,6 +2868,7 @@ GLPREFMNU_SWLMBANDED			= "Banded SW Lightmode";
 GLPREFMNU_VRIPD					= "Distance Between Your Eyes";
 GLPREFMNU_VRSCREENDIST			= "Distance From Your Screen";
 GLPREFMNU_RENDERSKYDOME			= "Render the skydome";
+GLPREFMNU_CUSTOMPOST			= "Custom post-processing shaders";
 GLPREFMNU_PLANEREFLECTION		= "Reflections";
 
 // Option Values
@@ -2924,10 +2951,10 @@ OPTVAL_HIGH					= "High";
 OPTVAL_EXTREME				= "Extreme";
 OPTVAL_OBVERSEFIRST			= "Obverse";
 OPTVAL_REVERSEFIRST			= "Reverse";
-OPTVAL_CLASSICZ				= "Classic ZDoom";
-OPTVAL_MODERN				= "Modern (WASD)";
-OPTVAL_MODERN2				= "Modern (ESDF)";
-OPTVAL_MODERN3				= "Modern (OKL;)";
+OPTVAL_CLASSICZ				= "QZD Pre 1.3.0";
+OPTVAL_MODERN				= "QZD Dual Wield";
+OPTVAL_MODERN2				= "QZD Classic";
+OPTVAL_MODERN3				= "-";
 OPTVAL_UBO					= "UBO (better performance)";
 OPTVAL_SSBO					= "SSBO (better stability)";
 

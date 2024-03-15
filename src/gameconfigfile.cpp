@@ -134,6 +134,8 @@ FGameConfigFile::FGameConfigFile ()
 		SetValueForKey ("Path", user_app_support, true);
 		SetValueForKey ("Path", "$PROGDIR", true);
 		SetValueForKey ("Path", local_app_support, true);
+#elif __ANDROID__
+		SetValueForKey ("Path", "./wads", true);
 #elif !defined(__unix__)
 		SetValueForKey ("Path", "$HOME", true);
 		SetValueForKey ("Path", "$PROGDIR", true);
@@ -153,11 +155,14 @@ FGameConfigFile::FGameConfigFile ()
 	if (!SetSection ("FileSearch.Directories"))
 	{
 		SetSection ("FileSearch.Directories", true);
+		SetValueForKey ("Path", ".", true);
 #ifdef __APPLE__
 		SetValueForKey ("Path", user_docs, true);
 		SetValueForKey ("Path", user_app_support, true);
 		SetValueForKey ("Path", "$PROGDIR", true);
 		SetValueForKey ("Path", local_app_support, true);
+#elif __ANDROID__
+		SetValueForKey ("Path", "./mods", true);
 #elif !defined(__unix__)
 		SetValueForKey ("Path", "$PROGDIR", true);
 #else
@@ -541,6 +546,15 @@ void FGameConfigFile::DoGlobalSetup ()
 				var = FindCVar("midi_config", NULL);
 				if (var != NULL) var->ResetToDefault();
 			}
+			if (last < 226)
+			{
+				FBaseCVar *var = FindCVar("gl_billboard_faces_camera", NULL);
+				if (var != NULL) var->ResetToDefault();
+				var = FindCVar("storesavepic", NULL);
+				if (var != NULL) var->ResetToDefault();
+				var = FindCVar("gl_max_lights", NULL);
+				if (var != NULL) var->ResetToDefault();
+			}
 		}
 	}
 }
@@ -810,10 +824,13 @@ FString FGameConfigFile::GetConfigPath (bool tryProg)
 {
 	const char *pathval;
 
-	pathval = Args->CheckValue ("-config");
-	if (pathval != NULL)
+	if (Args != NULL)
 	{
-		return FString(pathval);
+		pathval = Args->CheckValue ("-config");
+		if (pathval != NULL)
+		{
+			return FString(pathval);
+		}
 	}
 	return M_GetConfigPath(tryProg);
 }

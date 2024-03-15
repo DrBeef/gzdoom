@@ -999,11 +999,22 @@ namespace swrenderer
 		// Don't waste time projecting sprites that are definitely not visible.
 		if (thing == nullptr ||
 			(thing->renderflags & RF_INVISIBLE) ||
+			(thing->renderflags & RF_MAYBEINVISIBLE) ||
 			!thing->RenderStyle.IsVisible(thing->Alpha) ||
 			!thing->IsVisibleToPlayer() ||
 			!thing->IsInsideVisibleAngles())
 		{
 			return false;
+		}
+
+		if ((thing->flags8 & MF8_MASTERNOSEE) && thing->master != nullptr)
+		{
+			// Make MASTERNOSEE actors invisible if their master
+			// is invisible due to viewpoint shenanigans.
+			if (thing->master->renderflags & RF_MAYBEINVISIBLE)
+			{
+				return false;
+			}
 		}
 
 		// check renderrequired vs ~r_rendercaps, if anything matches we don't support that feature,
@@ -1018,6 +1029,17 @@ namespace swrenderer
 		if (!renderportal->CurrentPortalInSkybox && renderportal->CurrentPortal && !!P_PointOnLineSidePrecise(thing->Pos(), renderportal->CurrentPortal->dst))
 			return false;
 
+		// [Nash] filter visibility in mirrors
+		bool isInMirror = renderportal != nullptr && renderportal->IsInMirrorRecursively;
+		if (thing->renderflags2 & RF2_INVISIBLEINMIRRORS && isInMirror)
+		{
+			return false;
+		}
+		else if (thing->renderflags2 & RF2_ONLYVISIBLEINMIRRORS && !isInMirror)
+		{
+			return false;
+		}
+
 		double distanceSquared = (thing->Pos() - Thread->Viewport->viewpoint.Pos).LengthSquared();
 		if (distanceSquared > sprite_distance_cull)
 			return false;
@@ -1029,6 +1051,7 @@ namespace swrenderer
 	{
 		// The X offsetting (SpriteOffset.X) is performed in r_sprite.cpp, in RenderSprite::Project().
 		sprite.pos = thing->InterpolatedPosition(Thread->Viewport->viewpoint.TicFrac);
+		sprite.pos += thing->WorldOffset;
 		sprite.pos.Z += thing->GetBobOffset(Thread->Viewport->viewpoint.TicFrac) - thing->SpriteOffset.Y;
 		sprite.spritenum = thing->sprite;
 		sprite.tex = nullptr;

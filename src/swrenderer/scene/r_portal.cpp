@@ -343,6 +343,8 @@ namespace swrenderer
 
 		if (pds->mirror)
 		{
+			IsInMirrorRecursively = true;
+
 			//vertex_t *v1 = ds->curline->v1;
 			vertex_t *v1 = pds->src->v1;
 
@@ -392,7 +394,7 @@ namespace swrenderer
 
 					if (dist1 + dist2 < distp + 1)
 					{
-						viewpoint.camera->renderflags |= RF_INVISIBLE;
+						viewpoint.camera->renderflags |= RF_MAYBEINVISIBLE;
 					}
 				}
 			}
@@ -467,6 +469,7 @@ namespace swrenderer
 
 		CurrentPortal = prevpds;
 		MirrorFlags = prevmf;
+		IsInMirrorRecursively = false;
 		viewpoint.Angles.Yaw = startang;
 		viewpoint.Pos = startpos;
 		viewpoint.Path[0] = savedpath[0];

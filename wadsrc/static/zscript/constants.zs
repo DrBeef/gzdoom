@@ -127,6 +127,7 @@ enum ESpawnItemFlags
 	SXF_ISTARGET				=	1 << 26,
 	SXF_ISMASTER				=	1 << 27,
 	SXF_ISTRACER				=	1 << 28,
+	SXF_RELATIVETOWEAPON		=	1 << 29,
 };
 
 // Flags for A_Chase
@@ -188,6 +189,7 @@ enum EChangeVelocityFlags
 {
 	CVF_RELATIVE = 1,
 	CVF_REPLACE = 2,
+	CVF_RELATIVETOWEAPON = 4,
 };
 
 // Flags for A_WeaponReady
@@ -366,6 +368,14 @@ enum ERadiusGiveFlags
 	RGF_EXFILTER	=	1 << 15,
 	RGF_EXSPECIES	=	1 << 16,
 	RGF_EITHER		=	1 << 17,
+};
+
+// Change model flags
+enum ChangeModelFlags
+{
+	CMDL_WEAPONTOPLAYER = 1,
+	CMDL_HIDEMODEL = 1 << 1,
+	CMDL_USESURFACESKIN = 1 << 2,
 };
 
 // Activation flags
@@ -672,6 +682,7 @@ enum EQuakeFlags
 	QF_MAX =			1 << 3,
 	QF_FULLINTENSITY =	1 << 4,
 	QF_WAVE =			1 << 5,
+	QF_3D =				1 << 6,
 };
 
 // A_CheckProximity flags
@@ -715,6 +726,7 @@ enum EParticleFlags
 	SPF_RELACCEL =		1 << 3,
 	SPF_RELANG =		1 << 4,
 	SPF_NOTIMEFREEZE =	1 << 5,
+	SPF_ROLL =			1 << 6,
 
 	SPF_RELATIVE =	SPF_RELPOS|SPF_RELVEL|SPF_RELACCEL|SPF_RELANG
 };
@@ -840,7 +852,7 @@ enum EButtons
 	BT_LOOKDOWN		= 1<<17,
 	BT_MOVEUP		= 1<<18,
 	BT_MOVEDOWN		= 1<<19,
-	BT_SHOWSCORES	= 1<<20,
+	BT_SHOWSCORES	= 0,  // replaced with BT_MAINHANDRELOAD
 
 	BT_USER1		= 1<<21,
 	BT_USER2		= 1<<22,
@@ -851,6 +863,8 @@ enum EButtons
 
 	BT_OFFHANDATTACK    = 1<<26,
 	BT_OFFHANDALTATTACK = 1<<27,
+	BT_OFFHANDRELOAD    = 1<<28,
+	BT_MAINHANDRELOAD   = 1<<20,
 };
 
 // Flags for GetAngle
@@ -1273,8 +1287,14 @@ enum EWeaponState
 	WF_OFFHANDREADYALT       = 1 << 14,
 	WF_OFFHANDSWITCHOK       = 1 << 15,
 	WF_OFFHANDDISABLESWITCH  = 1 << 16,
-	WF_OFFHANDREFIRESWITCHOK = 1 << 17,
-	WF_TWOHANDSTABILIZED     = 1 << 18,
+	WF_OFFHANDRELOADOK       = 1 << 17,
+	WF_OFFHANDZOOMOK         = 1 << 18,
+	WF_OFFHANDREFIRESWITCHOK = 1 << 19,
+	WF_OFFHANDUSER1OK        = 1 << 20,
+	WF_OFFHANDUSER2OK        = 1 << 21,
+	WF_OFFHANDUSER3OK        = 1 << 22,
+	WF_OFFHANDUSER4OK        = 1 << 23,
+	WF_TWOHANDSTABILIZED     = 1 << 24
 };
 
 // these flags are for filtering actor visibility based on certain conditions of the renderer's feature support.

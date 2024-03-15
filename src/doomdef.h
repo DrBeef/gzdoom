@@ -463,7 +463,8 @@ enum
 	DF2_NOCOUNTENDMONST		= 1 << 26,	// Do not count monsters in 'end level when dying' sectors towards kill count
 	DF2_RESPAWN_SUPER		= 1 << 27,	// Respawn invulnerability and invisibility
 	DF2_NO_COOP_THING_SPAWN	= 1 << 28,	// Don't spawn multiplayer things in coop games
-	DF2_DOUBLESPAWN			= 1 << 29,	// Spawn double the monsters
+	DF2_ALWAYS_SPAWN_MULTI	= 1 << 29,	// Always spawn multiplayer items
+	DF2_DOUBLESPAWN			= 1 << 30,	// Spawn double the monsters
 };
 
 // [RH] Compatibility flags.
@@ -514,7 +515,10 @@ enum : unsigned int
 	COMPATF2_EXPLODE2		= 1 << 9,	// Use original explosion code throughout.
 	COMPATF2_RAILING		= 1 << 10,	// Bugged Strife railings.
 	COMPATF2_SCRIPTWAIT		= 1 << 11,	// Use old scriptwait implementation where it doesn't wait on a non-running script.
-	COMPATF2_OLD_RANDOM_GENERATOR	= 1 << 12,	// [BB] Use Doom's random table instead of ZDoom's random number generator.
+	COMPATF2_AVOID_HAZARDS	= 1 << 12,	// another MBF thing.
+	COMPATF2_STAYONLIFT		= 1 << 13,	// yet another MBF thing.
+	COMPATF2_OLD_RANDOM_GENERATOR	= 1 << 14,	// [BB] Use Doom's random table instead of ZDoom's random number generator.
+
 };
 
 // Emulate old bugs for select maps. These are not exposed by a cvar

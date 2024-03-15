@@ -47,10 +47,13 @@
 #include "w_wad.h"
 #include "d_gui.h"
 #include "d_event.h"
+#include "doomstat.h"
+#include "c_console.h"
 
 #include "LSMatrix.h"
 
 
+EXTERN_CVAR(Bool, puristmode);
 EXTERN_CVAR(Int, screenblocks);
 EXTERN_CVAR(Float, movebob);
 EXTERN_CVAR(Bool, cl_noprediction)
@@ -70,6 +73,10 @@ EXTERN_CVAR(Bool, vr_switch_sticks);
 EXTERN_CVAR(Bool, vr_secondary_button_mappings);
 EXTERN_CVAR(Bool, vr_two_handed_weapons);
 EXTERN_CVAR(Bool, vr_crouch_use_button);
+EXTERN_CVAR(Float, vr_2dweaponScale)
+EXTERN_CVAR(Float, vr_2dweaponOffsetX);
+EXTERN_CVAR(Float, vr_2dweaponOffsetY);
+EXTERN_CVAR(Float, vr_2dweaponOffsetZ);
 
 //HUD control
 EXTERN_CVAR(Float, vr_hud_scale);
@@ -334,12 +341,15 @@ namespace s3d
 
     void OpenXRDeviceMode::AdjustPlayerSprites(int hand) const
     {
-        GetWeaponTransform(&gl_RenderState.mModelMatrix, hand);
+        if (GetWeaponTransform(&gl_RenderState.mModelMatrix, hand))
+        {
+            float scale = 0.000625f * vr_weaponScale * vr_2dweaponScale;
+            gl_RenderState.mModelMatrix.scale(scale, -scale, scale);
+            gl_RenderState.mModelMatrix.translate(-viewwidth / 2, -viewheight * 3 / 4, 0.0f); // What dis?!
 
-        float scale = 0.000625f * vr_weaponScale;
-        gl_RenderState.mModelMatrix.scale(scale, -scale, scale);
-        gl_RenderState.mModelMatrix.translate(-viewwidth / 2, -viewheight * 3 / 4, 0.0f); // What dis?!
-
+            float offsetFactor = 40.f;
+            gl_RenderState.mModelMatrix.translate(vr_2dweaponOffsetX * offsetFactor, -vr_2dweaponOffsetY * offsetFactor, vr_2dweaponOffsetZ * offsetFactor);
+        }
         gl_RenderState.EnableModelMatrix(true);
     }
 
@@ -531,22 +541,27 @@ namespace s3d
             QzDoom_setUseScreenLayer(true);
         }
 
+        player_t* player = r_viewpoint.camera ? r_viewpoint.camera->player : nullptr;
 
         //Some crazy stuff to ascertain the actual yaw that doom is using at the right times!
-        if (getGameState() != GS_LEVEL || getMenuState() != MENU_Off)
+        if (getGameState() != GS_LEVEL || getMenuState() != MENU_Off 
+        || ConsoleState == c_down || ConsoleState == c_falling 
+        || (player && player->playerstate == PST_DEAD)
+        || (player && player->resetDoomYaw)
+        || paused 
+        )
         {
-            doomYaw = (float)r_viewpoint.Angles.Yaw.Degrees;
             resetDoomYaw = true;
         }
-        else if (getGameState() == GS_LEVEL && resetDoomYaw) {
-            doomYaw = (float)r_viewpoint.Angles.Yaw.Degrees;
+        else if (getGameState() == GS_LEVEL && resetDoomYaw && r_viewpoint.camera != nullptr)
+        {
+            doomYaw = (float)r_viewpoint.camera->Angles.Yaw.Degrees;
             resetDoomYaw = false;
         }
 
-        if (getMenuState() == MENU_Off)
+        if (gamestate == GS_LEVEL && getMenuState() == MENU_Off)
         {
-            player_t* player = r_viewpoint.camera ? r_viewpoint.camera->player : nullptr;
-            if (player)
+            if (player && player->mo)
             {
                 double pixelstretch = level.info ? level.info->pixelstretch : 1.2;
 
@@ -563,7 +578,7 @@ namespace s3d
 
                 //Weapon firing tracking - Thanks Fishbiter for the inspiration of how/where to use this!
                 {
-                    player->mo->OverrideAttackPosDir = true;
+                    player->mo->OverrideAttackPosDir = !puristmode;
 
                     player->mo->AttackPitch = cinemamode ? -weaponangles[PITCH] - r_viewpoint.Angles.Pitch.Degrees
                             : -weaponangles[PITCH];

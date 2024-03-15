@@ -95,6 +95,17 @@ struct FLevelLocals : public FLevelData
 	int li_compatflags = i_compatflags;
 	int li_compatflags2 = i_compatflags2;
 
+	bool CheckReject(sector_t *s1, sector_t *s2)
+	{
+		if (rejectmatrix.Size() > 0)
+		{
+			int pnum = int(s1->Index()) * sectors.Size() + int(s2->Index());
+			return !(rejectmatrix[pnum >> 3] & (1 << (pnum & 7)));
+		}
+		return true;
+	}
+
+
 	uint8_t		md5[16];			// for savegame validation. If the MD5 does not match the savegame won't be loaded.
 	int			time;			// time in the hub
 	int			maptime;		// time in the map
@@ -171,6 +182,8 @@ struct FLevelLocals : public FLevelData
 	int			frozenstate;
 
 	double		teamdamage;
+
+	TArray<FString> savedModelFiles;
 
 	// former OpenGL-exclusive properties that should also be usable by the true color software renderer.
 	int fogdensity;

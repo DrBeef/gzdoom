@@ -130,6 +130,7 @@ static void PlayerLandedOnThing (AActor *mo, AActor *onmobj);
 
 extern int BotWTG;
 EXTERN_CVAR (Int,  cl_rockettrails)
+EXTERN_CVAR (Bool, use_action_spawn_yzoffset)
 
 // PRIVATE DATA DEFINITIONS ------------------------------------------------
 
@@ -169,6 +170,7 @@ CVAR (Int, cl_bloodtype, 0, CVAR_ARCHIVE);
 
 // CODE --------------------------------------------------------------------
 
+IMPLEMENT_CLASS(DActorModelData, false, false);
 IMPLEMENT_CLASS(AActor, false, true)
 
 IMPLEMENT_POINTERS_START(AActor)
@@ -182,6 +184,7 @@ IMPLEMENT_POINTERS_START(AActor)
 	IMPLEMENT_POINTER(master)
 	IMPLEMENT_POINTER(Poisoner)
 	IMPLEMENT_POINTER(alternative)
+	IMPLEMENT_POINTER(modelData)
 IMPLEMENT_POINTERS_END
 
 AActor::~AActor ()
@@ -215,6 +218,7 @@ void AActor::Serialize(FSerializer &arc)
 		A("scale", Scale)
 		A("renderstyle", RenderStyle)
 		A("renderflags", renderflags)
+		A("renderflags2", renderflags2)
 		A("picnum", picnum)
 		A("floorpic", floorpic)
 		A("ceilingpic", ceilingpic)
@@ -366,10 +370,10 @@ void AActor::Serialize(FSerializer &arc)
 		A("cameraheight", CameraHeight)
 		A("camerafov", CameraFOV)
 		A("tag", Tag)
-		A("visiblestartangle",VisibleStartAngle)
-		A("visibleendangle",VisibleEndAngle)
-		A("visiblestartpitch",VisibleStartPitch)
-		A("visibleendpitch",VisibleEndPitch)
+		A("visiblestartangle", VisibleStartAngle)
+		A("visibleendangle", VisibleEndAngle)
+		A("visiblestartpitch", VisibleStartPitch)
+		A("visibleendpitch", VisibleEndPitch)
 		A("woundhealth", WoundHealth)
 		A("rdfactor", RadiusDamageFactor)
 		A("selfdamagefactor", SelfDamageFactor)
@@ -382,7 +386,9 @@ void AActor::Serialize(FSerializer &arc)
 		A("spawnorder", SpawnOrder)
 		A("friction", Friction)
 		A("SpriteOffset", SpriteOffset)
-		A("userlights", UserLights);
+		A("userlights", UserLights)
+		A("WorldOffset", WorldOffset)
+		A("modelData", modelData);
 }
 
 #undef A
@@ -1196,6 +1202,7 @@ bool AActor::Grind(bool items)
 			flags3 |= MF3_DONTGIB;
 			Height = 0;
 			radius = 0;
+			Vel.Zero();
 			return false;
 		}
 
@@ -1223,6 +1230,7 @@ bool AActor::Grind(bool items)
 			flags3 |= MF3_DONTGIB;
 			Height = 0;
 			radius = 0;
+			Vel.Zero();
 			SetState (state);
 			if (isgeneric)	// Not a custom crush state, so colorize it appropriately.
 			{
@@ -1259,6 +1267,7 @@ bool AActor::Grind(bool items)
 				flags3 |= MF3_DONTGIB;
 				Height = 0;
 				radius = 0;
+				Vel.Zero();
 				return false;
 			}
 
@@ -1366,6 +1375,23 @@ bool AActor::Massacre ()
 		return health <= 0;
 	}
 	return false;
+}
+
+//----------------------------------------------------------------------------
+//
+// Serialize DActorModelData
+//
+//----------------------------------------------------------------------------
+
+void DActorModelData::Serialize(FSerializer& arc)
+{
+	Super::Serialize(arc);
+	arc("modelDef", modelDef)
+		("modelIDs", modelIDs)
+		("skinIDs", skinIDs)
+		("surfaceSkinIDs", surfaceSkinIDs)
+		("modelFrameGenerators", modelFrameGenerators)
+		("hasModel", hasModel);
 }
 
 //----------------------------------------------------------------------------
@@ -1713,6 +1739,7 @@ bool AActor::CanSeek(AActor *target) const
 	if ((flags2 & MF2_DONTSEEKINVISIBLE) && 
 		((target->flags & MF_SHADOW) || 
 		 (target->renderflags & RF_INVISIBLE) || 
+		 (target->flags8 & MF8_MINVISIBLE) ||
 		 !target->RenderStyle.IsVisible(target->Alpha)
 		)
 	   ) return false;
@@ -2257,7 +2284,7 @@ explode:
 		return Oldfloorz;
 	}
 
-	if (mo->Z() > mo->floorz && !(mo->flags2 & MF2_ONMOBJ) &&
+	if (mo->Z() > mo->floorz + 2 && !(mo->flags2 & MF2_ONMOBJ) &&
 		!mo->IsNoClip2() &&
 		(!(mo->flags2 & MF2_FLY) || !(mo->flags & MF_NOGRAVITY)) &&
 		!mo->waterlevel)
@@ -2413,84 +2440,7 @@ void P_ZMovement (AActor *mo, double oldfloorz)
 
 	mo->AddZ(mo->Vel.Z);
 
-//
-// apply gravity
-//
-	if (mo->Z() > mo->floorz && !(mo->flags & MF_NOGRAVITY))
-	{
-		double startvelz = mo->Vel.Z;
-
-		if (mo->waterlevel == 0 || (mo->player &&
-			!(mo->player->cmd.ucmd.forwardmove | mo->player->cmd.ucmd.sidemove)))
-		{
-			// [RH] Double gravity only if running off a ledge. Coming down from
-			// an upward thrust (e.g. a jump) should not double it.
-			if (mo->Vel.Z == 0 && oldfloorz > mo->floorz && mo->Z() == oldfloorz)
-			{
-				mo->Vel.Z -= grav + grav;
-			}
-			else
-			{
-				mo->Vel.Z -= grav;
-			}
-		}
-		if (mo->player == NULL)
-		{
-			if (mo->waterlevel >= 1)
-			{
-				double sinkspeed;
-
-				if ((mo->flags & MF_SPECIAL) && !(mo->flags3 & MF3_ISMONSTER))
-				{ // Pickup items don't sink if placed and drop slowly if dropped
-					sinkspeed = (mo->flags & MF_DROPPED) ? -WATER_SINK_SPEED / 8 : 0;
-				}
-				else
-				{
-					sinkspeed = -WATER_SINK_SPEED;
-
-					// If it's not a player, scale sinkspeed by its mass, with
-					// 100 being equivalent to a player.
-					if (mo->player == NULL)
-					{
-						sinkspeed = sinkspeed * clamp(mo->Mass, 1, 4000) / 100;
-					}
-				}
-				if (mo->Vel.Z < sinkspeed)
-				{ // Dropping too fast, so slow down toward sinkspeed.
-					mo->Vel.Z -= MAX(sinkspeed*2, -8.);
-					if (mo->Vel.Z > sinkspeed)
-					{
-						mo->Vel.Z = sinkspeed;
-					}
-				}
-				else if (mo->Vel.Z > sinkspeed)
-				{ // Dropping too slow/going up, so trend toward sinkspeed.
-					mo->Vel.Z = startvelz + MAX(sinkspeed/3, -8.);
-					if (mo->Vel.Z < sinkspeed)
-					{
-						mo->Vel.Z = sinkspeed;
-					}
-				}
-			}
-		}
-		else
-		{
-			if (mo->waterlevel > 1)
-			{
-				double sinkspeed = -WATER_SINK_SPEED;
-
-				if (mo->Vel.Z < sinkspeed)
-				{
-					mo->Vel.Z = (startvelz < sinkspeed) ? startvelz : sinkspeed;
-				}
-				else
-				{
-					mo->Vel.Z = startvelz + ((mo->Vel.Z - startvelz) *
-						(mo->waterlevel == 1 ? WATER_SINK_SMALL_FACTOR : WATER_SINK_FACTOR));
-				}
-			}
-		}
-	}
+	mo->CallFallAndSink(grav, oldfloorz);
 
 	// Hexen compatibility handling for floatbobbing. Ugh...
 	// Hexen yanked all items to the floor, except those being spawned at map start in the air.
@@ -2517,7 +2467,7 @@ void P_ZMovement (AActor *mo, double oldfloorz)
 				mo->AddZ(mo->FloatSpeed);
 		}
 	}
-	if (mo->player && (mo->flags & MF_NOGRAVITY) && (mo->Z() > mo->floorz))
+	if (mo->player && (mo->flags & MF_NOGRAVITY) && (mo->Z() > mo->floorz + 2))
 	{
 		if (!mo->IsNoClip2())
 		{
@@ -2555,7 +2505,7 @@ void P_ZMovement (AActor *mo, double oldfloorz)
 //
 // clip movement
 //
-	if (mo->Z() <= mo->floorz)
+	if (mo->Z() <= mo->floorz + 2)
 	{	// Hit the floor
 		if ((!mo->player || !(mo->player->cheats & CF_PREDICTING)) &&
 			mo->Sector->SecActTarget != NULL &&
@@ -2566,7 +2516,7 @@ void P_ZMovement (AActor *mo, double oldfloorz)
 		P_CheckFor3DFloorHit(mo, mo->floorz, true);
 		// [RH] Need to recheck this because the sector action might have
 		// teleported the actor so it is no longer below the floor.
-		if (mo->Z() <= mo->floorz)
+		if (mo->Z() <= mo->floorz + 2)
 		{
 			mo->BlockingFloor = mo->Sector;
 			if ((mo->flags & MF_MISSILE) && !(mo->flags & MF_NOCLIP))
@@ -2795,10 +2745,17 @@ DEFINE_ACTION_FUNCTION(AActor, CheckFakeFloorTriggers)
 //
 //===========================================================================
 
+void AActor::PlayerLandedMakeGruntSound(AActor *onmobj)
+{
+	IFVIRTUAL(AActor, PlayerLandedMakeGruntSound)
+	{
+		VMValue params[2] = { (AActor*)this, (AActor*)onmobj };
+		VMCall(func, params, 2, nullptr, 0);
+	}
+}
+
 static void PlayerLandedOnThing (AActor *mo, AActor *onmobj)
 {
-	bool grunted;
-
 	if (!mo->player)
 		return;
 
@@ -2812,28 +2769,117 @@ static void PlayerLandedOnThing (AActor *mo, AActor *onmobj)
 
 	P_FallingDamage (mo);
 
-	// [RH] only make noise if alive
-	if (mo->health > 0 && !mo->player->morphTics)
-	{
-		grunted = false;
-		// Why should this number vary by gravity?
-		if (mo->Vel.Z < -mo->player->mo->FloatVar(NAME_GruntSpeed))
-		{
-			S_Sound (mo, CHAN_VOICE, 0, "*grunt", 1, ATTN_NORM);
-			grunted = true;
-		}
-		if (onmobj != NULL || !Terrains[P_GetThingFloorType (mo)].IsLiquid)
-		{
-			if (!grunted || !S_AreSoundsEquivalent (mo, "*grunt", "*land"))
-			{
-				S_Sound (mo, CHAN_AUTO, 0, "*land", 1, ATTN_NORM);
-			}
-		}
-	}
+	mo->PlayerLandedMakeGruntSound(onmobj);
+
 //	mo->player->centering = true;
 }
 
+//==========================================================================
+//
+// AActor :: FallAndSink
+//
+//==========================================================================
 
+void AActor::FallAndSink(double grav, double oldfloorz)
+{
+	if (Z() > floorz + 2 && !(flags & MF_NOGRAVITY))
+	{
+		double startvelz = Vel.Z;
+
+		if (waterlevel == 0 || (player &&
+			!(player->cmd.ucmd.forwardmove | player->cmd.ucmd.sidemove)))
+		{
+			// [RH] Double gravity only if running off a ledge. Coming down from
+			// an upward thrust (e.g. a jump) should not double it.
+			if (Vel.Z == 0 && oldfloorz > floorz && Z() == oldfloorz)
+			{
+				Vel.Z -= grav + grav;
+			}
+			else
+			{
+				Vel.Z -= grav;
+			}
+		}
+		if (player == NULL)
+		{
+			if (waterlevel >= 1)
+			{
+				double sinkspeed;
+
+				if ((flags & MF_SPECIAL) && !(flags3 & MF3_ISMONSTER))
+				{ // Pickup items don't sink if placed and drop slowly if dropped
+					sinkspeed = (flags & MF_DROPPED) ? -WATER_SINK_SPEED / 8 : 0;
+				}
+				else
+				{
+					sinkspeed = -WATER_SINK_SPEED;
+
+					// If it's not a player, scale sinkspeed by its mass, with
+					// 100 being equivalent to a player.
+					if (player == NULL)
+					{
+						sinkspeed = sinkspeed * clamp(Mass, 1, 4000) / 100;
+					}
+				}
+				if (Vel.Z < sinkspeed)
+				{ // Dropping too fast, so slow down toward sinkspeed.
+					Vel.Z -= MAX(sinkspeed * 2, -8.);
+					if (Vel.Z > sinkspeed)
+					{
+						Vel.Z = sinkspeed;
+					}
+				}
+				else if (Vel.Z > sinkspeed)
+				{ // Dropping too slow/going up, so trend toward sinkspeed.
+					Vel.Z = startvelz + MAX(sinkspeed / 3, -8.);
+					if (Vel.Z < sinkspeed)
+					{
+						Vel.Z = sinkspeed;
+					}
+				}
+			}
+		}
+		else
+		{
+			if (waterlevel > 1)
+			{
+				double sinkspeed = -WATER_SINK_SPEED;
+
+				if (Vel.Z < sinkspeed)
+				{
+					Vel.Z = (startvelz < sinkspeed) ? startvelz : sinkspeed;
+				}
+				else
+				{
+					Vel.Z = startvelz + ((Vel.Z - startvelz) *
+						(waterlevel == 1 ? WATER_SINK_SMALL_FACTOR : WATER_SINK_FACTOR));
+				}
+			}
+		}
+	}
+}
+
+DEFINE_ACTION_FUNCTION(AActor, FallAndSink)
+{
+	PARAM_SELF_PROLOGUE(AActor);
+	PARAM_FLOAT(grav);
+	PARAM_FLOAT(oldfloorz);
+	self->FallAndSink(grav, oldfloorz);
+	return 0;
+}
+
+void AActor::CallFallAndSink(double grav, double oldfloorz)
+{
+	IFVIRTUAL(AActor, FallAndSink)
+	{
+		VMValue params[3] = { (DObject*)this, grav, oldfloorz };
+		VMCall(func, params, 3, nullptr, 0);
+	}
+	else
+	{
+	FallAndSink(grav, oldfloorz);
+	}
+}
 
 //
 // P_NightmareRespawn
@@ -3440,6 +3486,10 @@ void AActor::SetAngle(DAngle ang, int fflags)
 		if (player != nullptr && (fflags & SPF_INTERPOLATE))
 		{
 			player->cheats |= CF_INTERPVIEW;
+		}
+		if (player != nullptr)
+		{
+			resetDoomYaw = true;
 		}
 	}
 	
@@ -4260,27 +4310,32 @@ void AActor::CheckSectorTransition(sector_t *oldsec)
 
 //==========================================================================
 //
-// AActor::SplashCheck
+// AActor::UpdateWaterDepth
 //
-// Returns true if actor should splash
+// Updates the actor's current waterlevel and waterdepth.
+// Consolidates common code in UpdateWaterLevel and SplashCheck.
+//
+// Returns the floor height used for the depth check, or -FLT_MAX
+// if the actor wasn't in a sector.
 //
 //==========================================================================
 
-void AActor::SplashCheck()
+int AActor::UpdateWaterDepth(bool splash)
 {
 	double fh = -FLT_MAX;
 	bool reset = false;
 
 	waterlevel = 0;
+	waterdepth = 0;
 
 	if (Sector == NULL)
 	{
-		return;
+		return fh;
 	}
 
 	if (Sector->MoreFlags & SECMF_UNDERWATER)	// intentionally not SECMF_UNDERWATERMASK
 	{
-		waterlevel = 3;
+		waterdepth = Height;
 	}
 	else
 	{
@@ -4288,28 +4343,16 @@ void AActor::SplashCheck()
 		if (hsec != NULL)
 		{
 			fh = hsec->floorplane.ZatPoint(this);
-			//if (hsec->MoreFlags & SECMF_UNDERWATERMASK)	// also check Boom-style non-swimmable sectors
+
+			// splash checks also check Boom-style non-swimmable sectors
+			//  as well as non-solid, visible 3D floors (below)
+			if (splash || hsec->MoreFlags & SECMF_UNDERWATERMASK)
 			{
-				if (Z() < fh)
+				waterdepth = fh - Z();
+
+				if (waterdepth <= 0 && !(hsec->MoreFlags & SECMF_FAKEFLOORONLY) && (Top() > hsec->ceilingplane.ZatPoint(this)))
 				{
-					waterlevel = 1;
-					if (Center() < fh)
-					{
-						waterlevel = 2;
-						if ((player && Z() + player->viewheight <= fh) ||
-							(Top() <= fh))
-						{
-							waterlevel = 3;
-						}
-					}
-				}
-				else if (!(hsec->MoreFlags & SECMF_FAKEFLOORONLY) && (Top() > hsec->ceilingplane.ZatPoint(this)))
-				{
-					waterlevel = 3;
-				}
-				else
-				{
-					waterlevel = 0;
+					waterdepth = Height;
 				}
 			}
 		}
@@ -4322,31 +4365,55 @@ void AActor::SplashCheck()
 				if (rover->flags & FF_SOLID) continue;
 
 				bool reset = !(rover->flags & FF_SWIMMABLE);
-				if (reset && rover->alpha == 0) continue;
+				if (splash) { reset &= rover->alpha == 0; }
+				if (reset) continue;
+
 				double ff_bottom = rover->bottom.plane->ZatPoint(this);
 				double ff_top = rover->top.plane->ZatPoint(this);
 
-				if (ff_top <= Z() || ff_bottom > (Center())) continue;
+				if (ff_top <= Z() || ff_bottom > Center()) continue;
 
 				fh = ff_top;
-				if (Z() < fh)
-				{
-					waterlevel = 1;
-					if (Center() < fh)
-					{
-						waterlevel = 2;
-						if ((player && Z() + player->viewheight <= fh) ||
-							(Top() <= fh))
-						{
-							waterlevel = 3;
-						}
-					}
-				}
-
+				waterdepth = ff_top - Z();
 				break;
 			}
 		}
 	}
+
+	if (waterdepth < 0) { waterdepth = 0; }
+
+	if (waterdepth > (Height / 2))
+	{
+		// When noclipping around and going from low to high sector, your view height
+		//  can go negative, which is why this is nested inside here
+		if ((player && (waterdepth >= player->viewheight)) || (waterdepth >= Height))
+		{
+			waterlevel = 3;
+		}
+		else
+		{
+			waterlevel = 2;
+		}
+	}
+	else if (waterdepth > 0)
+	{
+		waterlevel = 1;
+	}
+
+	return fh;
+}
+
+//==========================================================================
+//
+// AActor::SplashCheck
+//
+// Returns true if actor should splash
+//
+//==========================================================================
+
+void AActor::SplashCheck()
+{
+	double fh = UpdateWaterDepth(true);
 
 	// some additional checks to make deep sectors like Boom's splash without setting
 	// the water flags. 
@@ -4368,106 +4435,36 @@ void AActor::SplashCheck()
 
 bool AActor::UpdateWaterLevel(bool dosplash)
 {
-	int oldlevel = waterlevel;
-
 	if (dosplash) SplashCheck();
 
-	double fh = -FLT_MAX;
-	bool reset = false;
+	int oldlevel = waterlevel;
+	UpdateWaterDepth(false);
 
-	waterlevel = 0;
+	// Play surfacing and diving sounds, as appropriate.
+	//
+	// (used to be that this code was wrapped around a "Sector != nullptr" check,
+	//  but actors should always be within a sector, and besides, this is just
+	//  sound stuff)
 
-	if (Sector != nullptr)
+	if (player != nullptr)
 	{
-		if (Sector->MoreFlags & SECMF_UNDERWATER)	// intentionally not SECMF_UNDERWATERMASK
+		if (oldlevel < 3 && waterlevel == 3)
 		{
-			waterlevel = 3;
+			// Our head just went under.
+			S_Sound(this, CHAN_VOICE, 0, "*dive", 1, ATTN_NORM);
 		}
-		else
+		else if (oldlevel == 3 && waterlevel < 3)
 		{
-			const sector_t *hsec = Sector->GetHeightSec();
-			if (hsec != NULL)
+			// Our head just came up.
+			if (player->air_finished > Level->maptime)
 			{
-				fh = hsec->floorplane.ZatPoint(this);
-				if (hsec->MoreFlags & SECMF_UNDERWATERMASK)	// also check Boom-style non-swimmable sectors
-				{
-					if (Z() < fh)
-					{
-						waterlevel = 1;
-						if (Center() < fh)
-						{
-							waterlevel = 2;
-							if ((player && Z() + player->viewheight <= fh) ||
-								(Top() <= fh))
-							{
-								waterlevel = 3;
-							}
-						}
-					}
-					else if (!(hsec->MoreFlags & SECMF_FAKEFLOORONLY) && (Top() > hsec->ceilingplane.ZatPoint(this)))
-					{
-						waterlevel = 3;
-					}
-					else
-					{
-						waterlevel = 0;
-					}
-				}
+				// We hadn't run out of air yet.
+				S_Sound(this, CHAN_VOICE, 0, "*surface", 1, ATTN_NORM);
 			}
-			else
-			{
-				// Check 3D floors as well!
-				for (auto rover : Sector->e->XFloor.ffloors)
-				{
-					if (!(rover->flags & FF_EXISTS)) continue;
-					if (rover->flags & FF_SOLID) continue;
-					if (!(rover->flags & FF_SWIMMABLE)) continue;
-
-					double ff_bottom = rover->bottom.plane->ZatPoint(this);
-					double ff_top = rover->top.plane->ZatPoint(this);
-
-					if (ff_top <= Z() || ff_bottom > (Center())) continue;
-
-					fh = ff_top;
-					if (Z() < fh)
-					{
-						waterlevel = 1;
-						if (Center() < fh)
-						{
-							waterlevel = 2;
-							if ((player && Z() + player->viewheight <= fh) ||
-								(Top() <= fh))
-							{
-								waterlevel = 3;
-							}
-						}
-					}
-
-					break;
-				}
-			}
-		}
-
-		// Play surfacing and diving sounds, as appropriate.
-		if (player != nullptr)
-		{
-			if (oldlevel < 3 && waterlevel == 3)
-			{ 
-				// Our head just went under.
-				S_Sound(this, CHAN_VOICE, 0, "*dive", 1, ATTN_NORM);
-			}
-			else if (oldlevel == 3 && waterlevel < 3)
-			{ 
-				// Our head just came up.
-				if (player->air_finished > level.time)
-				{ 
-					// We hadn't run out of air yet.
-					S_Sound(this, CHAN_VOICE, 0, "*surface", 1, ATTN_NORM);
-				}
-				// If we were running out of air, then ResetAirSupply() will play *gasp.
-			}
+			// If we were running out of air, then ResetAirSupply() will play *gasp.
 		}
 	}
+
 	return false;	// we did the splash ourselves
 }
 
@@ -5499,7 +5496,7 @@ AActor *P_SpawnMapThing (FMapThing *mthing, int position)
 	AActor *mobj, *mobj2;
 	bool spawned;
 
-	bool spawnmulti = G_SkillProperty(SKILLP_SpawnMulti) || multiplayer;
+	bool spawnmulti = G_SkillProperty(SKILLP_SpawnMulti) || !!(dmflags2 & DF2_ALWAYS_SPAWN_MULTI);
 
 	if (mthing->EdNum == 0 || mthing->EdNum == -1)
 		return NULL;
@@ -6520,24 +6517,24 @@ DEFINE_ACTION_FUNCTION(AActor, CheckMissileSpawn)
 //
 //---------------------------------------------------------------------------
 
-void P_PlaySpawnSound(AActor *missile, AActor *spawner)
+void P_PlaySpawnSound(AActor *missile, AActor *spawner, int channel, EChanFlags flags)
 {
 	if (missile->SeeSound != 0)
 	{
 		if (!(missile->flags & MF_SPAWNSOUNDSOURCE))
 		{
-			S_Sound (missile, CHAN_VOICE, 0, missile->SeeSound, 1, ATTN_NORM);
+			S_Sound (missile, channel, flags, missile->SeeSound, 1, ATTN_NORM);
 		}
 		else if (spawner != NULL)
 		{
-			S_Sound (spawner, CHAN_WEAPON, 0, missile->SeeSound, 1, ATTN_NORM);
+			S_Sound (spawner, channel, flags, missile->SeeSound, 1, ATTN_NORM);
 		}
 		else
 		{
 			// If there is no spawner use the spawn position.
 			// But not in a silenced sector.
 			if (!(missile->Sector->Flags & SECF_SILENT))
-				S_Sound (missile->Pos(), CHAN_WEAPON, 0, missile->SeeSound, 1, ATTN_NORM);
+				S_Sound (missile->Pos(), channel, flags, missile->SeeSound, 1, ATTN_NORM);
 		}
 	}
 }
@@ -6790,7 +6787,7 @@ DEFINE_ACTION_FUNCTION(AActor, SpawnMissileZAimed)
 //---------------------------------------------------------------------------
 
 AActor *P_SpawnMissileAngleZSpeed (AActor *source, double z,
-	PClassActor *type, DAngle angle, double vz, double speed, AActor *owner, bool checkspawn, int aimflags)
+	PClassActor *type, DAngle angle, double vz, double speed, AActor *owner, bool checkspawn)
 {
 	if (source == nullptr || type == nullptr)
 	{
@@ -6803,36 +6800,13 @@ AActor *P_SpawnMissileAngleZSpeed (AActor *source, double z,
 		z -= source->Floorclip;
 	}
 
-	DAngle an = angle;
-	DAngle pitch = source->Angles.Pitch;
-	DVector3 pos = source->PosAtZ(z);
-	if (source->player != NULL && source->player->mo->OverrideAttackPosDir)
-	{
-		if (aimflags & ALF_ISOFFHAND)
-		{
-			pos = source->player->mo->OffhandPos;
-			DVector3 dir = source->player->mo->OffhandDir(source, an, pitch);
-			an = dir.Angle();
-			pitch = dir.Pitch();
-		}
-		else
-		{
-			pos = source->player->mo->AttackPos;
-			DVector3 dir = source->player->mo->AttackDir(source, an, pitch);
-			an = dir.Angle();
-			pitch = dir.Pitch();
-		}
-		double slope = -clamp(pitch.Tan(), -5., 5.);
-		vz = speed * slope;
-	}
-
-	mo = Spawn (type, pos, ALLOW_REPLACE);
+	mo = Spawn (type, source->PosAtZ(z), ALLOW_REPLACE);
 
 	if (mo == nullptr) return nullptr;
 	P_PlaySpawnSound(mo, source);
 	if (owner == nullptr) owner = source;
 	mo->target = owner;
-	mo->Angles.Yaw = an;
+	mo->Angles.Yaw = angle;
 	mo->VelFromAngle(speed);
 	mo->Vel.Z = vz;
 
@@ -6854,19 +6828,18 @@ DEFINE_ACTION_FUNCTION(AActor, SpawnMissileAngleZSpeed)
 	PARAM_FLOAT(speed);
 	PARAM_OBJECT(owner, AActor);
 	PARAM_BOOL(checkspawn);
-	PARAM_INT(aimflags);
-	ACTION_RETURN_OBJECT(P_SpawnMissileAngleZSpeed(self, z, type, angle, vz, speed, owner, checkspawn, aimflags));
+	ACTION_RETURN_OBJECT(P_SpawnMissileAngleZSpeed(self, z, type, angle, vz, speed, owner, checkspawn));
 }
 
 
-AActor *P_SpawnSubMissile(AActor *source, PClassActor *type, AActor *target, int aimflags)
+AActor *P_SpawnSubMissile(AActor *source, PClassActor *type, AActor *target, DAngle angle, int aimflags)
 {
 	if (source == nullptr || type == nullptr)
 	{
 		return nullptr;
 	}
 
-	DAngle an = source->Angles.Yaw;
+	DAngle an = angle;
 	DAngle pitch = source->Angles.Pitch;
 	DVector3 pos = source->Pos();
 	if (source->player != NULL && source->player->mo->OverrideAttackPosDir)
@@ -6912,7 +6885,10 @@ AActor *P_SpawnSubMissile(AActor *source, PClassActor *type, AActor *target, int
 
 	if (P_CheckMissileSpawn(other, source->radius))
 	{
-		DAngle pitch = P_AimLineAttack(source, an, 1024., NULL, 0., aimflags);
+		if (source->player == NULL || !source->player->mo->OverrideAttackPosDir)
+		{
+			pitch = P_AimLineAttack(source, angle, 1024., NULL, 0., aimflags);
+		}
 		other->Vel.Z = -other->Speed * pitch.Sin();
 		return other;
 	}
@@ -6925,7 +6901,9 @@ DEFINE_ACTION_FUNCTION(AActor, SpawnSubMissile)
 	PARAM_CLASS(cls, AActor);
 	PARAM_OBJECT_NOT_NULL(target, AActor);
 	PARAM_INT(aimflags);
-	ACTION_RETURN_OBJECT(P_SpawnSubMissile(self, cls, target, aimflags));
+	PARAM_ANGLE(angle);
+	if (angle == 1e37) angle = self->Angles.Yaw;
+	ACTION_RETURN_OBJECT(P_SpawnSubMissile(self, cls, target, angle, aimflags));
 }
 /*
 ================
@@ -6938,7 +6916,7 @@ DEFINE_ACTION_FUNCTION(AActor, SpawnSubMissile)
 EXTERN_CVAR(Int, vr_control_scheme)
 
 AActor *P_SpawnPlayerMissile (AActor *source, double x, double y, double z,
-							  PClassActor *type, DAngle angle, FTranslatedLineTarget *pLineTarget, AActor **pMissileActor,
+							  PClassActor *type, DAngle angle, DAngle p, FTranslatedLineTarget *pLineTarget, AActor **pMissileActor,
 							  bool nofreeaim, bool noautoaim, int aimflags)
 {
 	if (source == nullptr || type == nullptr)
@@ -6948,7 +6926,7 @@ AActor *P_SpawnPlayerMissile (AActor *source, double x, double y, double z,
 
 	static const double angdiff[3] = { -5.625, 5.625, 0 };
 	DAngle an = angle;
-	DAngle pitch;
+	DAngle pitch = p;
 	FTranslatedLineTarget scratch;
 	AActor *defaultobject = GetDefaultByType(type);
 	DAngle vrange = nofreeaim ? 35. : 0.;
@@ -6997,41 +6975,70 @@ AActor *P_SpawnPlayerMissile (AActor *source, double x, double y, double z,
 		}
 	}
 
-	if (z != ONFLOORZ && z != ONCEILINGZ)
+	DVector3 pos = source->Vec2OffsetZ(x, y, z);
+	if (pos.Z != ONFLOORZ && pos.Z != ONCEILINGZ)
 	{
 		// Doom spawns missiles 4 units lower than hitscan attacks for players.
-		z += source->Center() - source->Floorclip + source->AttackOffset(-4);
+		pos.Z += source->Center() - source->Floorclip + source->AttackOffset(-4);
 		// Do not fire beneath the floor.
-		if (z < source->floorz)
+		if (pos.Z < source->floorz)
 		{
-			z = source->floorz;
+			pos.Z = source->floorz;
 		}
 	}
-	// TODO: spawnofs_xy parameter from functions like A_FireProjectile has no effect
-	// https://github.com/hh79/gzdoomvr/issues/57
-	DVector3 pos = source->Vec2OffsetZ(x, y, z);
 	if (source->player != NULL && source->player->mo->OverrideAttackPosDir)
 	{
+		DVector3 dir;
+		DVector3 xoffsetDir;
+		DVector3 yoffsetDir;
+		DVector3 zoffsetDir;
 		if (aimflags & ALF_ISOFFHAND)
 		{
 			pos = source->player->mo->OffhandPos;
-			DVector3 dir = source->player->mo->OffhandDir(source, an, pitch);
+			dir = source->player->mo->OffhandDir(source, an, pitch);
+			xoffsetDir = source->player->mo->OffhandDir(source, source->Angles.Yaw, source->Angles.Pitch);
+			yoffsetDir = source->player->mo->OffhandDir(source, source->Angles.Yaw - 90, source->Angles.Pitch);
+			zoffsetDir = source->player->mo->OffhandDir(source, source->Angles.Yaw, source->Angles.Pitch + 90);
 			an = dir.Angle();
 			pitch = dir.Pitch();
 		}
 		else
 		{
 			pos = source->player->mo->AttackPos;
-			DVector3 dir = source->player->mo->AttackDir(source, an, pitch);
+			dir = source->player->mo->AttackDir(source, an, pitch);
+			xoffsetDir = source->player->mo->AttackDir(source, source->Angles.Yaw, source->Angles.Pitch);
+			yoffsetDir = source->player->mo->AttackDir(source, source->Angles.Yaw - 90, source->Angles.Pitch);
+			zoffsetDir = source->player->mo->AttackDir(source, source->Angles.Yaw, source->Angles.Pitch + 90);
 			an = dir.Angle();
 			pitch = dir.Pitch();
 		}
+
+		if (!use_action_spawn_yzoffset)
+			y = z = 0;
+
+		pos += DVector3(
+			x * xoffsetDir.Angle().Cos() * xoffsetDir.Pitch().Cos(),
+			x * xoffsetDir.Angle().Sin() * xoffsetDir.Pitch().Cos(),
+			x * -xoffsetDir.Pitch().Sin()
+		);
+
+		pos += DVector3(
+			y * yoffsetDir.Angle().Cos() * yoffsetDir.Pitch().Cos(),
+			y * yoffsetDir.Angle().Sin() * yoffsetDir.Pitch().Cos(),
+			y * -yoffsetDir.Pitch().Sin()
+		);
+
+		pos += DVector3(
+			z * zoffsetDir.Pitch().Cos() * zoffsetDir.Angle().Cos(), 
+			z * zoffsetDir.Pitch().Cos() * zoffsetDir.Angle().Sin(),
+			z * -zoffsetDir.Pitch().Sin()
+		);
 	}
 	AActor *MissileActor = Spawn (type, pos, ALLOW_REPLACE);
 
 	if (MissileActor == nullptr) return nullptr;
 	if (pMissileActor) *pMissileActor = MissileActor;
-	P_PlaySpawnSound(MissileActor, source);
+	P_PlaySpawnSound(MissileActor, source, !!(aimflags & ALF_ISOFFHAND) ? CHAN_OFFWEAPON : CHAN_WEAPON, CHANF_OVERLAP);
 	MissileActor->target = source;
 	MissileActor->Angles.Yaw = an;
 	if (MissileActor->flags3 & (MF3_FLOORHUGGER | MF3_CEILINGHUGGER))
@@ -7082,9 +7089,11 @@ DEFINE_ACTION_FUNCTION(AActor, SpawnPlayerMissile)
 	PARAM_BOOL(nofreeaim);
 	PARAM_BOOL(noautoaim);
 	PARAM_INT(aimflags);
+	PARAM_ANGLE(pitch);
 	AActor *missileactor;
 	if (angle == 1e37) angle = self->Angles.Yaw;
-	AActor *misl = P_SpawnPlayerMissile(self, x, y, z, type, angle, lt, &missileactor, nofreeaim, noautoaim, aimflags);
+	if (pitch == 1e37) pitch = self->Angles.Pitch;
+	AActor *misl = P_SpawnPlayerMissile(self, x, y, z, type, angle, pitch, lt, &missileactor, nofreeaim, noautoaim, aimflags);
 	if (numret > 0) ret[0].SetObject(misl);
 	if (numret > 1) ret[1].SetObject(missileactor), numret = 2;
 	return numret;

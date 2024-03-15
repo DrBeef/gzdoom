@@ -150,6 +150,7 @@ public:
 	EColorRange mFontColor;
 	EColorRange mFontColor2;
 	bool mCenter;
+	bool mForceList;
 
 	void Reset()
 	{
@@ -352,11 +353,12 @@ void M_RefreshModesList ();
 void M_InitVideoModesMenu ();
 void M_MarkMenus();
 void M_ResetButtonStates();
+void DeinitMenus();
 
 
 struct IJoystickConfig;
-DMenuItemBase * CreateOptionMenuItemStaticText(const char *name, int v = -1);
-DMenuItemBase * CreateOptionMenuItemSubmenu(const char *label, FName cmd, int center);
+DMenuItemBase * CreateOptionMenuItemStaticText(const char *name, int v = -1, bool centered = true);
+DMenuItemBase * CreateOptionMenuItemSubmenu(const char *label, FName cmd, int center, int v = CR_UNDEFINED);
 DMenuItemBase * CreateOptionMenuItemControl(const char *label, FName cmd, FKeyBindings *bindings);
 DMenuItemBase * CreateOptionMenuItemJoyConfigMenu(const char *label, IJoystickConfig *joy);
 DMenuItemBase * CreateListMenuItemPatch(double x, double y, int height, int hotkey, FTextureID tex, FName command, int param);

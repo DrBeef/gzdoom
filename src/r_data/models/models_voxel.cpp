@@ -115,6 +115,7 @@ uint8_t *FVoxelTexture::MakeTexture (FRenderStyle style)
 			Pixels[i] = (uint8_t)i;
 		}
 	}  
+	FTexture::FlipSquareBlock(Pixels, Width, Height);
 	return Pixels;
 }
 
@@ -361,7 +362,7 @@ void FVoxelModel::BuildVertexBuffer(FModelRenderer *renderer)
 //
 //===========================================================================
 
-void FVoxelModel::AddSkins(uint8_t *hitlist)
+void FVoxelModel::AddSkins(uint8_t *hitlist, const FTextureID*)
 {
 	hitlist[mPalette.GetIndex()] |= FTextureManager::HIT_Flat;
 }
@@ -405,7 +406,7 @@ float FVoxelModel::getAspectFactor()
 //
 //===========================================================================
 
-void FVoxelModel::RenderFrame(FModelRenderer *renderer, FTexture * skin, int frame, int frame2, double inter, int translation)
+void FVoxelModel::RenderFrame(FModelRenderer *renderer, FTexture * skin, int frame, int frame2, double inter, int translation, const FTextureID*)
 {
 	renderer->SetMaterial(skin, true, translation);
 	GetVertexBuffer(renderer)->SetupFrame(renderer, 0, 0, 0);

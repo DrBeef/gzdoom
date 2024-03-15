@@ -32,6 +32,7 @@ class Weapon : StateProvider
 	int Crosshair;							// 0 to use player's crosshair
 	bool GivenAsMorphWeapon;
 	bool bAltFire;							// Set when this weapon's alternate fire is used.
+	double UseRange;						// [NS] Distance at which player can +use
 	readonly bool bDehAmmo;					// Uses Doom's original amount of ammo for the respective attack functions so that old DEHACKED patches work as intended.
 											// AmmoUse1 will be set to the first attack's ammo use so that checking for empty weapons still works
 	meta int SlotNumber;
@@ -60,6 +61,7 @@ class Weapon : StateProvider
 	property SlotNumber: SlotNumber;
 	property SlotPriority: SlotPriority;
 	property LookScale: LookScale;
+	property UseRange: UseRange;
 
 	flagdef NoAutoFire: WeaponFlags, 0;			// weapon does not autofire
 	flagdef ReadySndHalf: WeaponFlags, 1;		// ready sound is played ~1/2 the time
@@ -101,6 +103,7 @@ class Weapon : StateProvider
 		Weapon.BobRangeY 1.0;
 		Weapon.SlotNumber -1;
 		Weapon.SlotPriority 32767;
+		Weapon.UseRange 48;
 		+WEAPONSPAWN
 		DefaultStateUsage SUF_ACTOR|SUF_OVERLAY|SUF_WEAPON;
 	}
@@ -168,7 +171,7 @@ class Weapon : StateProvider
 	{
 		if (UpSound)
 		{
-			origin.A_StartSound(UpSound, bOffhandWeapon ? CHAN_OFFWEAPON : CHAN_WEAPON);
+			origin.A_StartSound(UpSound, CHAN_WEAPON);
 		}
 	}
 	
@@ -388,7 +391,7 @@ class Weapon : StateProvider
 		{
 			if (!weapon.bReadySndHalf || random[WpnReadySnd]() < 128)
 			{
-				pawn.A_StartSound(weapon.ReadySound, weapon.bOffhandWeapon ? CHAN_OFFWEAPON : CHAN_WEAPON);
+				pawn.A_StartSound(weapon.ReadySound, CHAN_WEAPON);
 			}
 		}
 
@@ -420,16 +423,16 @@ class Weapon : StateProvider
 		}
 	}
 
-	static int GetButtonStateFlags(int flags)
+	static int GetButtonStateFlags(int flags, int hand = 0)
 	{
 		// Rewritten for efficiency and clarity
 		int outflags = 0;
-		if (flags & WRF_AllowZoom) outflags |= WF_WEAPONZOOMOK;
-		if (flags & WRF_AllowReload) outflags |= WF_WEAPONRELOADOK;
-		if (flags & WRF_AllowUser1) outflags |= WF_USER1OK;
-		if (flags & WRF_AllowUser2) outflags |= WF_USER2OK;
-		if (flags & WRF_AllowUser3) outflags |= WF_USER3OK;
-		if (flags & WRF_AllowUser4) outflags |= WF_USER4OK;
+		if (flags & WRF_AllowZoom) outflags |= hand ? WF_OFFHANDZOOMOK : WF_WEAPONZOOMOK;
+		if (flags & WRF_AllowReload) outflags |= hand ? WF_OFFHANDRELOADOK : WF_WEAPONRELOADOK;
+		if (flags & WRF_AllowUser1) outflags |= hand ? WF_OFFHANDUSER1OK : WF_USER1OK;
+		if (flags & WRF_AllowUser2) outflags |= hand ? WF_OFFHANDUSER2OK : WF_USER2OK;
+		if (flags & WRF_AllowUser3) outflags |= hand ? WF_OFFHANDUSER3OK : WF_USER3OK;
+		if (flags & WRF_AllowUser4) outflags |= hand ? WF_OFFHANDUSER4OK : WF_USER4OK;
 		return outflags;
 	}
 	
@@ -441,7 +444,7 @@ class Weapon : StateProvider
 		if ((flags & WRF_NoFire) != WRF_NoFire)			DoReadyWeaponToFire(player.mo, !(flags & WRF_NoPrimary), !(flags & WRF_NoSecondary), hand);
 		if (!(flags & WRF_NoBob))						DoReadyWeaponToBob(player, hand);
 
-		player.WeaponState |= GetButtonStateFlags(flags);														
+		player.WeaponState |= GetButtonStateFlags(flags, hand);														
 		DoReadyWeaponDisableSwitch(player, flags & WRF_DisableSwitch, hand);
 	}
 
@@ -472,11 +475,6 @@ class Weapon : StateProvider
 
 	action void A_ZoomFactor(double zoom = 1, int flags = 0)
 	{
-		CVar recoil = CVar.FindCVar('vr_recoil');
-		if (!recoil.GetBool())
-		{
-			return;
-		}
 		let player = self.player;
 		if (!player) return;
 		let weap = invoker == player.OffhandWeapon ? player.OffhandWeapon : player.ReadyWeapon;
